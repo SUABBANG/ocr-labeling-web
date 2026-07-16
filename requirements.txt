@@ -1,0 +1,7 @@
+# 코어 백엔드 (LLM 엔진 포함)
+fastapi
+uvicorn[standard]
+pillow
+python-dotenv
+anthropic
+openai

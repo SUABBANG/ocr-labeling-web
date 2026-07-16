@@ -1,0 +1,31 @@
+# 데이터/모델/시크릿
+model
+.env
+.env.*
+!.env.example
+projects.json
+# 모델 가중치가 model/ 밖에 놓여도 커밋 방지
+*.pth
+*.pdiparams
+*.pdmodel
+*.pdparams
+*.onnx
+
+# 파이썬
+__pycache__
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 프론트엔드
+node_modules
+frontend/dist
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

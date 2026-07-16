@@ -1,0 +1,9 @@
+# 로컬 OCR 엔진 (CRAFT 검출 + PaddleOCR 인식). 무겁고 선택적.
+# 주의: paddle/scipy 휠은 numpy 1.x 빌드가 많음 → numpy 2.x와 충돌하면 아래로 고정.
+numpy<2
+torch
+torchvision
+scipy
+opencv-python
+paddlepaddle
+paddleocr
