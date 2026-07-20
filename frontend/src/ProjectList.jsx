@@ -52,12 +52,12 @@ export default function ProjectList({ onEnter }) {
 
 function Progress({ progress }) {
   if (!progress || progress.total == null) return <div className="progress-label">폴더 미확인</div>
-  const { total, done } = progress
-  const pct = total ? Math.round((done / total) * 100) : 0
+  const { total, text_done, cell_done } = progress
+  const pct = total ? Math.round(((text_done + cell_done) / (total * 2)) * 100) : 0
   return (
     <>
       <div className="progress"><i style={{ width: pct + '%' }} /></div>
-      <div className="progress-label">완료 {done} / {total} ({pct}%)</div>
+      <div className="progress-label">텍스트 {text_done}/{total} · 셀 {cell_done}/{total} ({pct}%)</div>
     </>
   )
 }

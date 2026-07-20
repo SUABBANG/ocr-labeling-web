@@ -84,7 +84,8 @@ export default function Labeler({ project, onExit }) {
     setDirty(true); textSession.current = null
   }, [])
 
-  const doneCount = useMemo(() => images.filter((i) => i.done).length, [images])
+  const textDone = useMemo(() => images.filter((i) => i.text_done).length, [images])
+  const cellDone = useMemo(() => images.filter((i) => i.cell_done).length, [images])
   // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells)
   const visibleWords = useMemo(() => label?.[wkey] || [], [label, wkey])
 
@@ -111,7 +112,8 @@ export default function Labeler({ project, onExit }) {
       setLabel(next)
       setSelectedId((sid) => (sid ? idMap[sid] || null : null))
       setDirty(false)
-      setImages((xs) => xs.map((i) => i.name === name ? { ...i, has_label: true, done: !!next.done } : i))
+      setImages((xs) => xs.map((i) => i.name === name
+        ? { ...i, has_label: true, text_done: !!next.text_done, cell_done: !!next.cell_done } : i))
     } catch (e) { alert('저장 실패: ' + e.message) }
   }, [folder, name, label])
 
@@ -180,13 +182,14 @@ export default function Labeler({ project, onExit }) {
     } catch (e2) { alert('삭제 실패: ' + e2.message) }
   }
 
-  const toggleDone = useCallback(async () => {
+  const toggleDone = useCallback(async (kind) => {   // kind: 'text' | 'cell'
     if (!label || !name) return
-    const next = { ...label, done: !label.done }
+    const k = kind === 'cell' ? 'cell_done' : 'text_done'
+    const next = { ...label, [k]: !label[k] }
     setLabel(next)
     try {
       await api.putLabel(folder, name, next)
-      setImages((xs) => xs.map((i) => i.name === name ? { ...i, done: next.done } : i))
+      setImages((xs) => xs.map((i) => i.name === name ? { ...i, [k]: next[k] } : i))
     } catch (e) { alert('저장 실패: ' + e.message) }
   }, [folder, name, label])
 
@@ -220,7 +223,7 @@ export default function Labeler({ project, onExit }) {
         runModel,
         fit: () => editorRef.current?.fit(),
         reset100: () => editorRef.current?.reset100(),
-        toggleDone,
+        toggleDone: () => toggleDone(mode),   // 현재 모드(text/cell) 완료 토글
         toggleEditShape: () => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox')),
         undo,
       }
@@ -233,7 +236,7 @@ export default function Labeler({ project, onExit }) {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [keys, selectedId, newMode, moveImage, save, runModel, toggleDone, undo])
+  }, [keys, selectedId, newMode, mode, moveImage, save, runModel, toggleDone, undo])
 
   return (
     <div className="labeler">
@@ -270,12 +273,14 @@ export default function Labeler({ project, onExit }) {
 
       <div className="workspace">
         <div className="side left" style={{ width: leftW }}>
-          <div className="side-head">완료 {doneCount} / {images.length}</div>
+          <div className="side-head">완료 텍스트 {textDone} · 셀 {cellDone} / {images.length}</div>
           {images.map((im) => (
             <div key={im.name} className={'img-row' + (im.name === name ? ' active' : '')}
               onClick={() => selectImage(im.name)}>
-              <input type="checkbox" checked={im.done} readOnly
-                onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone() }} />
+              <input className="chk-text" type="checkbox" title="텍스트박스 완료" checked={im.text_done} readOnly
+                onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone('text') }} />
+              <input className="chk-cell" type="checkbox" title="테이블셀 완료" checked={im.cell_done} readOnly
+                onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone('cell') }} />
               <span className="name">{im.name}</span>
               {im.has_label && <span className="dot">●</span>}
               <button className="danger" title="삭제" onClick={(e) => deleteImg(e, im.name)}>×</button>

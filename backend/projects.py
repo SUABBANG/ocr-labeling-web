@@ -25,12 +25,14 @@ def _write(items: list[dict]) -> None:
 
 
 def _progress(folder: str) -> dict:
-    """폴더의 이미지 총계/완료 수. 폴더 없으면 None 카운트."""
+    """폴더의 이미지 총계 + 텍스트/셀 완료 수. 폴더 없으면 None 카운트."""
     try:
         imgs = labels.list_images(folder)
-        return {"total": len(imgs), "done": sum(i["done"] for i in imgs)}
+        return {"total": len(imgs),
+                "text_done": sum(i["text_done"] for i in imgs),
+                "cell_done": sum(i["cell_done"] for i in imgs)}
     except (OSError, ValueError, FileNotFoundError):
-        return {"total": None, "done": None}
+        return {"total": None, "text_done": None, "cell_done": None}
 
 
 def list_projects(with_progress: bool = True) -> list[dict]:

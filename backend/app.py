@@ -110,8 +110,11 @@ def run_model(folder: str, name: str, engine: str = "llm", mode: str = "text"):
         cells = [{"id": f"c{i+1}", "kind": "cell",
                   "poly": [[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]]}
                  for i, (x, y, bw, bh) in enumerate(boxes)]
+        legacy = existing.get("done", False)
         draft = {**existing, "image": name, "width": w, "height": h,
-                 "done": existing.get("done", False), "words": words, "cells": cells}
+                 "text_done": existing.get("text_done", legacy),
+                 "cell_done": existing.get("cell_done", legacy),
+                 "words": words, "cells": cells}
         _guard(labels.write_label, folder, name, draft)
         return draft
 
@@ -134,9 +137,12 @@ def run_model(folder: str, name: str, engine: str = "llm", mode: str = "text"):
         except Exception as e:  # noqa: BLE001 — API/파싱 오류를 클라이언트로 전달
             raise HTTPException(502, f"LLM 실행 실패: {e}")
 
-    cells = _guard(labels.read_label, folder, name).get("cells", [])  # 셀 라벨은 보존
-    draft = {"image": name, "width": w, "height": h,
-             "source": source, "done": False, "words": words, "cells": cells}
+    existing = _guard(labels.read_label, folder, name)   # 셀 라벨·완료 플래그 보존
+    legacy = existing.get("done", False)
+    draft = {"image": name, "width": w, "height": h, "source": source,
+             "text_done": existing.get("text_done", legacy),
+             "cell_done": existing.get("cell_done", legacy),
+             "words": words, "cells": existing.get("cells", [])}
     _guard(labels.write_label, folder, name, draft)
     return draft
 

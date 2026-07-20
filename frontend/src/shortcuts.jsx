@@ -12,7 +12,7 @@ export const ACTIONS = {
   runModel: '모델 실행',
   fit: '화면 맞춤',
   reset100: '100% 배율',
-  toggleDone: '완료 토글',
+  toggleDone: '완료 토글(현재 모드)',
   toggleEditShape: '편집모드(bbox/poly)',
   undo: '실행 취소',
 }

@@ -36,7 +36,7 @@ def label_path(folder: str, name: str) -> Path:
 
 
 def list_images(folder: str) -> list[dict]:
-    """이미지 파일명 + 라벨 존재 여부 + done 플래그."""
+    """이미지 파일명 + 라벨 존재 여부 + 텍스트/셀 완료 플래그."""
     idir = images_dir(folder)
     if not idir.is_dir():
         raise FileNotFoundError(f"images 폴더 없음: {idir}")
@@ -45,13 +45,16 @@ def list_images(folder: str) -> list[dict]:
         if p.suffix.lower() not in IMAGE_EXTS:
             continue
         lp = label_path(folder, p.name)
-        done = False
+        data = {}
         if lp.exists():
             try:
-                done = bool(json.loads(lp.read_text("utf-8")).get("done", False))
+                data = json.loads(lp.read_text("utf-8"))
             except (OSError, json.JSONDecodeError):
-                done = False
-        out.append({"name": p.name, "has_label": lp.exists(), "done": done})
+                data = {}
+        legacy = bool(data.get("done", False))   # 구 단일 done 폴백
+        out.append({"name": p.name, "has_label": lp.exists(),
+                    "text_done": bool(data.get("text_done", legacy)),
+                    "cell_done": bool(data.get("cell_done", legacy))})
     return out
 
 
@@ -60,7 +63,8 @@ def read_label(folder: str, name: str) -> dict:
     lp = label_path(folder, name)
     if lp.exists():
         return json.loads(lp.read_text("utf-8"))
-    return {"image": name, "source": "manual", "done": False, "words": []}
+    return {"image": name, "source": "manual",
+            "text_done": False, "cell_done": False, "words": []}
 
 
 def write_label(folder: str, name: str, data: dict) -> None:
@@ -84,12 +88,18 @@ def demo() -> None:
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "images").mkdir()
         (Path(d) / "images" / "a.png").write_bytes(b"x")
-        assert list_images(d) == [{"name": "a.png", "has_label": False, "done": False}]
-        lbl = {"image": "a.png", "source": "manual", "done": True, "words": [
-            {"id": "w1", "text": "hi", "poly": [[0, 0], [1, 0], [1, 1], [0, 1]]}]}
+        assert list_images(d) == [{"name": "a.png", "has_label": False,
+                                   "text_done": False, "cell_done": False}]
+        lbl = {"image": "a.png", "source": "manual", "text_done": True, "cell_done": False,
+               "words": [{"id": "w1", "text": "hi", "poly": [[0, 0], [1, 0], [1, 1], [0, 1]]}]}
         write_label(d, "a.png", lbl)
         assert read_label(d, "a.png") == lbl
-        assert list_images(d)[0]["done"] is True
+        assert list_images(d)[0]["text_done"] is True
+        assert list_images(d)[0]["cell_done"] is False
+        # 레거시 done → 두 플래그 폴백
+        write_label(d, "a.png", {"image": "a.png", "done": True, "words": []})
+        assert list_images(d)[0] == {"name": "a.png", "has_label": True,
+                                     "text_done": True, "cell_done": True}
         try:
             _safe_under(d, "..", "etc")
             raise AssertionError("traversal 미차단")
