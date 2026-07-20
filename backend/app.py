@@ -81,8 +81,12 @@ def put_label(folder: str, name: str, data: dict = Body(...)):
 
 
 @app.post("/api/model")
-def run_model(folder: str, name: str, engine: str = "llm"):
-    """OCR 실행 → 라벨 초안 저장·반환. engine=llm|local."""
+def run_model(folder: str, name: str, engine: str = "llm", mode: str = "text"):
+    """OCR 실행 → 라벨 초안 저장·반환. engine=llm|local, mode=text|cell.
+
+    mode=cell(테이블 셀 탭)은 로컬 모델만 지원. 검출한 셀은 라벨 JSON의 별도 "cells"
+    키에 저장하고(텍스트 "words"와 분리) 반대 모드 결과는 실행 시에도 보존한다.
+    """
     img = _guard(labels.image_path, folder, name)
     if not img.is_file():
         raise HTTPException(404, "이미지 없음")
@@ -90,6 +94,26 @@ def run_model(folder: str, name: str, engine: str = "llm"):
     from PIL import Image
     with Image.open(img) as im:
         w, h = im.size
+
+    if mode == "cell":
+        try:
+            from .table_cell_detection import detect_table_cells
+        except ImportError as e:
+            raise HTTPException(501, f"로컬 엔진 미설치: {e} (requirements-local.txt)")
+        try:
+            boxes = detect_table_cells(str(img))
+        except Exception as e:  # noqa: BLE001 — 실행 오류를 스택트레이스 대신 메시지로
+            raise HTTPException(502, f"테이블 셀 검출 실패: {type(e).__name__}: {e}")
+        existing = _guard(labels.read_label, folder, name)
+        # 텍스트 "words"는 보존, 레거시로 words에 섞인 셀(kind='cell')은 제거.
+        words = [wd for wd in existing.get("words", []) if wd.get("kind") != "cell"]
+        cells = [{"id": f"c{i+1}", "kind": "cell",
+                  "poly": [[x, y], [x + bw, y], [x + bw, y + bh], [x, y + bh]]}
+                 for i, (x, y, bw, bh) in enumerate(boxes)]
+        draft = {**existing, "image": name, "width": w, "height": h,
+                 "done": existing.get("done", False), "words": words, "cells": cells}
+        _guard(labels.write_label, folder, name, draft)
+        return draft
 
     if engine == "local":
         try:
@@ -110,8 +134,9 @@ def run_model(folder: str, name: str, engine: str = "llm"):
         except Exception as e:  # noqa: BLE001 — API/파싱 오류를 클라이언트로 전달
             raise HTTPException(502, f"LLM 실행 실패: {e}")
 
+    cells = _guard(labels.read_label, folder, name).get("cells", [])  # 셀 라벨은 보존
     draft = {"image": name, "width": w, "height": h,
-             "source": source, "done": False, "words": words}
+             "source": source, "done": False, "words": words, "cells": cells}
     _guard(labels.write_label, folder, name, draft)
     return draft
 

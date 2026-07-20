@@ -7,7 +7,7 @@ export const ACTIONS = {
   editText: '텍스트 편집',
   cancel: '취소/선택해제',
   deleteBox: '박스 삭제',
-  newBox: '신규 박스',
+  newBox: '박스 그리기/선택 전환',
   save: '저장',
   runModel: '모델 실행',
   fit: '화면 맞춤',

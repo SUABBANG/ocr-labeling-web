@@ -37,6 +37,9 @@ def _handle(req: dict) -> dict:
     img = _imread(req["path"])
     if img is None:
         return {"error": f"이미지 로드 실패: {req['path']}"}
+    if req.get("op") == "table":          # 테이블 셀 검출 (paddle)
+        from ..table_cell_detection.detector import detect_cells  # lazy — 셀 탭 실행 시에만
+        return {"cells": detect_cells(img)}
     H, W = img.shape[:2]
     boxes = req.get("boxes", [])
     # 경계로 clamp + 퇴화(빈) crop 스킵 — paddle은 0폭/0높이 입력에서 크래시.

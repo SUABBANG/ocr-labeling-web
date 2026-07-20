@@ -25,19 +25,22 @@ export default function Labeler({ project, onExit }) {
   const rowRefs = useRef({})                  // 우 패널 각 행 (선택 시 자동 스크롤)
   const dragId = useRef(null)                 // 드래그 중인 워드 id
 
-  // 워드 순서 변경: fromId를 toId 위치로 이동 (전체 words 배열 기준)
+  // 현재 모드가 쓰는 라벨 배열 키: 텍스트='words', 테이블셀='cells'
+  const wkey = mode === 'cell' ? 'cells' : 'words'
+
+  // 순서 변경: fromId를 toId 위치로 이동 (현재 모드 배열 기준)
   const moveWord = (fromId, toId) => {
     if (!fromId || fromId === toId) return
     pushHistory(); endTextSession()
     setLabel((l) => {
-      const arr = [...l.words]
+      const arr = [...(l[wkey] || [])]
       const fi = arr.findIndex((w) => w.id === fromId)
       if (fi < 0) return l
       const [item] = arr.splice(fi, 1)
       const ti = arr.findIndex((w) => w.id === toId)
       if (ti < 0) return l
       arr.splice(ti, 0, item)
-      return { ...l, words: arr }
+      return { ...l, [wkey]: arr }
     })
     setDirty(true)
   }
@@ -82,11 +85,8 @@ export default function Labeler({ project, onExit }) {
   }, [])
 
   const doneCount = useMemo(() => images.filter((i) => i.done).length, [images])
-  // 현재 모드의 박스만 표시/편집 (kind 없으면 text로 간주)
-  const visibleWords = useMemo(
-    () => (label?.words || []).filter((w) => (w.kind === 'cell' ? 'cell' : 'text') === mode),
-    [label, mode],
-  )
+  // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells)
+  const visibleWords = useMemo(() => label?.[wkey] || [], [label, wkey])
 
   useEffect(() => {
     api.listImages(folder).then(setImages).catch((e) => alert('폴더 조회 실패: ' + e.message))
@@ -101,10 +101,11 @@ export default function Labeler({ project, onExit }) {
 
   const save = useCallback(async () => {
     if (!label || !name) return
-    // id를 배열 순서대로 w1..wN 재번호 → JSON id가 순서를 반영
+    // id를 배열 순서대로 재번호(words=w1.., cells=c1..) → JSON id가 순서를 반영
     const idMap = {}
-    const words = label.words.map((w, i) => { idMap[w.id] = `w${i + 1}`; return { ...w, id: `w${i + 1}` } })
-    const next = { ...label, words }
+    const words = (label.words || []).map((w, i) => { idMap[w.id] = `w${i + 1}`; return { ...w, id: `w${i + 1}` } })
+    const cells = (label.cells || []).map((c, i) => { idMap[c.id] = `c${i + 1}`; return { ...c, id: `c${i + 1}` } })
+    const next = { ...label, words, cells }
     try {
       await api.putLabel(folder, name, next)
       setLabel(next)
@@ -119,16 +120,17 @@ export default function Labeler({ project, onExit }) {
     setBusy('모델 실행 중…')
     pushHistory(); endTextSession()   // 모델 결과로 덮기 전 상태 저장 → 취소 가능
     try {
-      const draft = await api.runModel(folder, name, engine)
+      // 테이블셀 탭은 로컬 모델만 지원 → 셀 검출로 라우팅(engine 무시)
+      const draft = await api.runModel(folder, name, engine, mode)
       setLabel(draft); setDirty(true); setSelectedId(null)
       setImages((xs) => xs.map((i) => i.name === name ? { ...i, has_label: true } : i))
     } catch (e) { alert('모델 실행 실패: ' + e.message) }
     finally { setBusy('') }
-  }, [folder, name, engine])
+  }, [folder, name, engine, mode])
 
   const changeWord = (id, poly) => {
     // 히스토리는 드래그 시작(onEditStart)에서 1회 저장 — 여기선 저장하지 않음
-    setLabel((l) => ({ ...l, words: l.words.map((w) => w.id === id ? { ...w, poly } : w) }))
+    setLabel((l) => ({ ...l, [wkey]: (l[wkey] || []).map((w) => w.id === id ? { ...w, poly } : w) }))
     setDirty(true)
   }
   const changeText = (id, text) => {
@@ -138,16 +140,16 @@ export default function Labeler({ project, onExit }) {
   }
   const deleteWord = (id) => {
     pushHistory(); endTextSession()
-    setLabel((l) => ({ ...l, words: l.words.filter((w) => w.id !== id) }))
+    setLabel((l) => ({ ...l, [wkey]: (l[wkey] || []).filter((w) => w.id !== id) }))
     setSelectedId(null); setDirty(true)
   }
   const addWord = (poly) => {
     pushHistory(); endTextSession()
-    const id = 'w' + Date.now()
+    const id = (mode === 'cell' ? 'c' : 'w') + Date.now()
     const item = mode === 'cell'
       ? { id, kind: 'cell', poly }
       : { id, text: '', poly, script: 'printed' }   // 기본 인쇄
-    setLabel((l) => ({ ...l, words: [...l.words, item] }))
+    setLabel((l) => ({ ...l, [wkey]: [...(l[wkey] || []), item] }))
     setSelectedId(id); setNewMode(false); setDirty(true)
   }
   const toggleScript = (id) => {   // 인쇄 ↔ 필기
@@ -163,8 +165,7 @@ export default function Labeler({ project, onExit }) {
     if (!visibleWords.length) return
     if (!confirm(`현재 모드(${mode === 'cell' ? '테이블셀' : '텍스트'}) 박스 ${visibleWords.length}개를 모두 삭제할까요?`)) return
     pushHistory(); endTextSession()
-    const ids = new Set(visibleWords.map((w) => w.id))
-    setLabel((l) => ({ ...l, words: l.words.filter((w) => !ids.has(w.id)) }))
+    setLabel((l) => ({ ...l, [wkey]: [] }))
     setSelectedId(null); setDirty(true)
   }
   const switchMode = (m) => { setMode(m); setSelectedId(null); setNewMode(false); endTextSession() }
@@ -202,6 +203,8 @@ export default function Labeler({ project, onExit }) {
       if (e.code === 'Space' && !editing()) { e.preventDefault(); setPanMode(true); return }
       const action = matchAction(keys, e)
       if (editing()) {
+        // 입력 중에도 저장은 동작 + 브라우저 기본동작(다른 이름으로 저장) 차단
+        if (action === 'save') { e.preventDefault(); save(); return }
         if (action === 'cancel') document.activeElement.blur()
         return
       }
@@ -248,9 +251,12 @@ export default function Labeler({ project, onExit }) {
             <option value="llm">LLM</option>
             <option value="local">로컬 모델</option>
           </select>
-          <button onClick={runModel} disabled={!name || busy}>모델 실행</button>
-          <button className="primary" onClick={save} disabled={!dirty}>저장{dirty ? ' *' : ''}</button>
+          <button onClick={runModel} disabled={!name || busy}
+            title={`모델 실행 (단축키 ${keys.runModel})`}>모델 실행</button>
+          <button className="primary" onClick={save} disabled={!dirty}
+            title={`저장 (단축키 ${keys.save})`}>저장{dirty ? ' *' : ''}</button>
           <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : 'toggle-on') : ''}
+            title={`박스 그리기/선택 전환 (단축키 ${keys.newBox})`}
             onClick={() => setNewMode((v) => !v)}>＋{mode === 'cell' ? '셀' : '텍스트'} 그리기</button>
           <button className="edit-shape" title="편집 모드 전환 (단축키 B)"
             onClick={() => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox'))}>

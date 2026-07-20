@@ -18,8 +18,8 @@ export const putLabel = (folder, name, data) =>
     body: JSON.stringify(data),
   })
 
-export const runModel = (folder, name, engine) =>
-  j(`/api/model?${q({ folder, name, engine })}`, { method: 'POST' })
+export const runModel = (folder, name, engine, mode) =>
+  j(`/api/model?${q({ folder, name, engine, mode })}`, { method: 'POST' })
 
 export const deleteImage = (folder, name) =>
   j(`/api/image?${q({ folder, name })}`, { method: 'DELETE' })

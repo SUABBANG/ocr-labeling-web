@@ -35,14 +35,11 @@ def _worker():
 _MARKER_B = MARKER.encode("utf-8")
 
 
-def recognize(image_path: str, boxes: list[list[int]]) -> list[str]:
-    """워커에 이미지 경로 + 박스를 보내 텍스트 리스트를 받는다."""
-    if not boxes:
-        return []
+def _roundtrip(req: dict) -> dict:
+    """워커에 요청 1건을 보내고 마커 응답을 파싱해 돌려준다."""
     with _lock:  # ponytail: 단일 워커 직렬화 — 처리량 필요하면 워커 풀로
         proc = _worker()
-        req = json.dumps({"path": image_path, "boxes": boxes}) + "\n"
-        proc.stdin.write(req.encode("utf-8"))
+        proc.stdin.write((json.dumps(req) + "\n").encode("utf-8"))
         proc.stdin.flush()
         while True:
             line = proc.stdout.readline()          # bytes
@@ -53,4 +50,11 @@ def recognize(image_path: str, boxes: list[list[int]]) -> list[str]:
                 break
     if "error" in out:
         raise RuntimeError(out["error"])
-    return out["texts"]
+    return out
+
+
+def recognize(image_path: str, boxes: list[list[int]]) -> list[str]:
+    """워커에 이미지 경로 + 박스를 보내 텍스트 리스트를 받는다."""
+    if not boxes:
+        return []
+    return _roundtrip({"path": image_path, "boxes": boxes})["texts"]
