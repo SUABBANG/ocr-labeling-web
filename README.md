@@ -29,6 +29,37 @@ backend/
   labels/   img001.json ...   # 이미지와 동일 stem, 없으면 자동 생성
 ```
 
+## 라벨 구조 (JSON)
+이미지당 JSON 하나. 텍스트 박스(`words`)와 테이블 셀(`cells`)은 **별도 배열**로 분리 저장.
+```jsonc
+{
+  "image": "img001.png",
+  "width": 892,
+  "height": 1253,
+  "source": "manual",     // 초안 출처: "manual" | "local" | "gpt" | "claude"
+  "text_done": false,     // 텍스트박스 검수 완료
+  "cell_done": false,     // 테이블셀 검수 완료
+  "words": [
+    {
+      "id": "w1",         // 저장 시 배열 순서대로 w1..wN 재번호
+      "text": "예시",
+      "poly": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]],  // 4점 quad, 원본 픽셀 좌표
+      "script": "printed" // "printed"(인쇄, 기본) | "handwriting"(필기)
+    }
+  ],
+  "cells": [
+    {
+      "id": "c1",         // 저장 시 c1..cN 재번호
+      "kind": "cell",
+      "poly": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]   // 셀은 텍스트 없이 영역만
+    }
+  ]
+}
+```
+- **`poly`**: 4점 폴리곤(좌상단→시계방향), 원본 이미지 픽셀 좌표. 축정렬 사각형은 특수 케이스.
+- **`text_done` / `cell_done`**: 종류별 검수 완료 플래그. 이미지 리스트 체크박스(텍스트=파랑, 셀=주황)·진행률에 사용. 단축키 `C`는 현재 탭 기준 토글. (구 단일 `done`은 읽을 때 둘 다로 폴백)
+- 저장 = 파일 전체 덮어쓰기(부분 patch 없음). IO 어댑터는 `backend/labels.py`.
+
 ## 실행
 
 ### 백엔드
