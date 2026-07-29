@@ -163,6 +163,15 @@ export default function Labeler({ project, onExit }) {
     }))
     setDirty(true)
   }
+  const toggleType = (id) => {   // 없음 → key → value → 없음
+    const next = { undefined: 'key', key: 'value', value: undefined }
+    pushHistory(); endTextSession()
+    setLabel((l) => ({
+      ...l,
+      words: l.words.map((w) => w.id === id ? { ...w, type: next[w.type] } : w),
+    }))
+    setDirty(true)
+  }
   const deleteAllVisible = () => {
     if (!visibleWords.length) return
     if (!confirm(`현재 모드(${mode === 'cell' ? '테이블셀' : '텍스트'}) 박스 ${visibleWords.length}개를 모두 삭제할까요?`)) return
@@ -333,7 +342,12 @@ export default function Labeler({ project, onExit }) {
                       title="인쇄/필기 전환" onClick={(e) => { e.stopPropagation(); toggleScript(w.id) }}>
                       {w.script === 'handwriting' ? '필' : '인'}
                     </button>
-                    <input ref={(el) => { wordInputs.current[w.id] = el }} value={w.text}
+                    <button className={'kv-btn' + (w.type ? ' ' + w.type : '')}
+                      title="key/value 전환" onClick={(e) => { e.stopPropagation(); toggleType(w.id) }}>
+                      {w.type === 'key' ? 'K' : w.type === 'value' ? 'V' : '·'}
+                    </button>
+                    <input ref={(el) => { wordInputs.current[w.id] = el }}
+                      className={w.type ? 'kv-' + w.type : ''} value={w.text}
                       onChange={(e) => changeText(w.id, e.target.value)}
                       onFocus={() => setSelectedId(w.id)} />
                   </>
