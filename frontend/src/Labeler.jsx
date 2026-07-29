@@ -236,6 +236,8 @@ export default function Labeler({ project, onExit }) {
         reset100: () => editorRef.current?.reset100(),
         toggleDone: () => toggleDone(mode),   // 현재 모드(text/cell) 완료 토글
         toggleEditShape: () => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox')),
+        advance: () => moveImage(1),
+        cycleType: () => mode === 'text' && selectedId && toggleType(selectedId),
         undo,
       }
       if (handlers[action]) { e.preventDefault(); handlers[action]() }
