@@ -16,6 +16,7 @@ export default function Labeler({ project, onExit }) {
   const [engine, setEngine] = useState('llm')
   const [busy, setBusy] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [autoSave, setAutoSave] = useState(() => localStorage.getItem('autoSave') === '1')
   const [showSettings, setShowSettings] = useState(false)
   const [keys, setKeys] = useState(loadShortcuts)
   const [leftW, setLeftW] = useState(232)     // 좌 사이드바 폭
@@ -93,13 +94,6 @@ export default function Labeler({ project, onExit }) {
     api.listImages(folder).then(setImages).catch((e) => alert('폴더 조회 실패: ' + e.message))
   }, [folder])
 
-  const selectImage = useCallback(async (n) => {
-    setName(n); setSelectedId(null); setNewMode(false)
-    historyRef.current = []; textSession.current = null   // 이미지 넘어가면 히스토리 초기화
-    try { setLabel(await api.getLabel(folder, n)); setDirty(false) }
-    catch (e) { alert('라벨 로드 실패: ' + e.message) }
-  }, [folder])
-
   const save = useCallback(async () => {
     if (!label || !name) return
     // id를 배열 순서대로 재번호(words=w1.., cells=c1..) → JSON id가 순서를 반영
@@ -116,6 +110,14 @@ export default function Labeler({ project, onExit }) {
         ? { ...i, has_label: true, text_done: !!next.text_done, cell_done: !!next.cell_done } : i))
     } catch (e) { alert('저장 실패: ' + e.message) }
   }, [folder, name, label])
+
+  const selectImage = useCallback(async (n) => {
+    if (autoSave && dirty) await save()   // 자동저장 ON: 페이지 전환 전 현재 라벨 저장
+    setName(n); setSelectedId(null); setNewMode(false)
+    historyRef.current = []; textSession.current = null   // 이미지 넘어가면 히스토리 초기화
+    try { setLabel(await api.getLabel(folder, n)); setDirty(false) }
+    catch (e) { alert('라벨 로드 실패: ' + e.message) }
+  }, [folder, autoSave, dirty, save])
 
   const runModel = useCallback(async () => {
     if (!name) return
@@ -267,6 +269,11 @@ export default function Labeler({ project, onExit }) {
             title={`모델 실행 (단축키 ${keys.runModel})`}>모델 실행</button>
           <button className="primary" onClick={save} disabled={!dirty}
             title={`저장 (단축키 ${keys.save})`}>저장{dirty ? ' *' : ''}</button>
+          <label className="autosave" title="ON이면 다른 이미지로 넘어갈 때 자동 저장">
+            <input type="checkbox" checked={autoSave}
+              onChange={(e) => { setAutoSave(e.target.checked); localStorage.setItem('autoSave', e.target.checked ? '1' : '0') }} />
+            자동저장
+          </label>
           <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : 'toggle-on') : ''}
             title={`박스 그리기/선택 전환 (단축키 ${keys.newBox})`}
             onClick={() => setNewMode((v) => !v)}>＋{mode === 'cell' ? '셀' : '텍스트'} 그리기</button>

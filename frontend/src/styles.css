@@ -139,6 +139,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .drag-handle:active { cursor: grabbing; }
 
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.autosave { display: flex; align-items: center; gap: 4px; font-size: 13px; color: #4a5566; cursor: pointer; }
 
 /* 라벨링 모드 탭 (세그먼티드) */
 .mode-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
