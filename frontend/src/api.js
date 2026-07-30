@@ -1,10 +1,19 @@
 // 백엔드 API 래퍼. folder는 서버 로컬 경로.
 const q = (o) => new URLSearchParams(o).toString()
 
+// 진행 중 요청 수를 구독 → 지연 시 상단 로딩 바 표시(모든 API 호출이 j를 거침)
+let _active = 0
+const _subs = new Set()
+export const onLoading = (cb) => { _subs.add(cb); return () => _subs.delete(cb) }
+const _emit = () => _subs.forEach((cb) => cb(_active))
+
 async function j(url, opts) {
-  const r = await fetch(url, opts)
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText)
-  return r.json()
+  _active++; _emit()
+  try {
+    const r = await fetch(url, opts)
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText)
+    return await r.json()
+  } finally { _active--; _emit() }
 }
 
 export const listImages = (folder) => j(`/api/images?${q({ folder })}`)

@@ -1,3 +1,12 @@
+/* 상단 로딩 바: API 요청 진행 중 채워지듯 흐르는 인디케이터 */
+.loadbar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 1000;
+  overflow: hidden; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.loadbar.on { opacity: 1; }
+.loadbar > i { display: block; height: 100%; width: 40%; border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  animation: loadbar-slide 1s infinite linear; }
+@keyframes loadbar-slide { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+
 :root {
   --bg: #f4f6f9;
   --panel: #ffffff;
