@@ -214,11 +214,12 @@ export default function Labeler({ project, onExit }) {
   useEffect(() => {
     const editing = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)
     const onKeyDown = (e) => {
+      // Ctrl/Cmd+S: 물리 키(KeyS)로 잡아 IME(한글)·포커스와 무관하게 저장.
+      // (e.key는 한글 IME/레이아웃에서 's'가 아니어서 matchAction이 놓쳐 브라우저 '다른 이름으로 저장'이 떴음)
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); save(); return }
       if (e.code === 'Space' && !editing()) { e.preventDefault(); setPanMode(true); return }
       const action = matchAction(keys, e)
       if (editing()) {
-        // 입력 중에도 저장은 동작 + 브라우저 기본동작(다른 이름으로 저장) 차단
-        if (action === 'save') { e.preventDefault(); save(); return }
         if (action === 'cancel') document.activeElement.blur()
         return
       }
