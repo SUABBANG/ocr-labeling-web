@@ -50,6 +50,34 @@ def remove_project(pid: str):
     return {"ok": True}
 
 
+@app.put("/api/projects/{pid}/group")
+def move_project(pid: str, data: dict = Body(...)):
+    """드래그앤드롭: 프로젝트를 폴더에 배치. group=null이면 미분류."""
+    return _guard(projects.move_project, pid, data.get("group"))
+
+
+# --- 프로젝트 폴더(그룹) ---
+@app.get("/api/groups")
+def get_groups():
+    return projects.list_groups()
+
+
+@app.post("/api/groups")
+def create_group(data: dict = Body(...)):
+    return _guard(projects.add_group, data.get("name", ""), data.get("description", ""))
+
+
+@app.put("/api/groups/{gid}")
+def edit_group(gid: str, data: dict = Body(...)):
+    return _guard(projects.update_group, gid, data.get("name", ""), data.get("description", ""))
+
+
+@app.delete("/api/groups/{gid}")
+def remove_group(gid: str):
+    projects.delete_group(gid)
+    return {"ok": True}
+
+
 @app.get("/api/images")
 def get_images(folder: str):
     return _guard(labels.list_images, folder)

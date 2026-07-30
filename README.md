@@ -7,15 +7,18 @@ LLM(GPT/Claude) 또는 로컬 모델로 라벨 초안을 생성한다.
 
 ## 사용 흐름
 첫 화면에서 **프로젝트**(제목·설명·데이터 폴더)를 만들고 카드를 열면 라벨링 화면으로 진입.
-프로젝트는 서버 `projects.json`에 저장된다.
+프로젝트를 **폴더(그룹)**로 묶어 관리할 수 있고(폴더명·설명·생성일), 프로젝트 카드를
+드래그앤드롭으로 폴더에 넣거나 `미분류`로 빼낼 수 있다. 폴더 삭제 시 안의 프로젝트는
+미분류로 남는다. 프로젝트는 서버 `projects.json`, 폴더는 `groups.json`에 저장된다.
 
 ## 백엔드 구조
 ```
 backend/
   app.py          # 메인 (FastAPI 라우팅)
   config.py       # .env 로딩 + 프로바이더/모델 경로
-  projects.py     # 프로젝트 CRUD (projects.json)
+  projects.py     # 프로젝트·폴더(그룹) CRUD (projects.json / groups.json)
   labels.py       # 라벨 파일 IO
+  table_cell_detection/  # 로컬 테이블 셀 검출
   llm/            # LLM 엔진 (Claude/GPT)
   detection/      # 검출 모델
   recognition/    # 인식 모델
@@ -30,7 +33,7 @@ backend/
 ```
 
 ## 라벨 구조 (JSON)
-이미지당 JSON 하나. 텍스트 박스(`words`)와 테이블 셀(`cells`)은 **별도 배열**로 분리 저장.
+이미지당 JSON 하나. 텍스트 박스(`words`)·테이블 셀(`cells`)·key/value 박스(`item`)는 **별도 배열**로 분리 저장.
 ```jsonc
 {
   "image": "img001.png",
@@ -76,7 +79,8 @@ backend/
 ```
 pip install -r requirements.txt
 copy .env.example .env      # API 키 입력 (ANTHROPIC_API_KEY 또는 OPENAI_API_KEY + LLM_PROVIDER)
-uvicorn backend.app:app --reload      # http://localhost:8000
+uvicorn backend.app:app --reload --reload-exclude projects.json --reload-exclude groups.json   # http://localhost:8000
+# projects.json·groups.json은 데이터 파일(요청마다 다시 읽음) → 저장 시 불필요한 재시작 방지
 ```
 API 키는 `.env`로 관리(git 제외). 실제 환경변수로도 가능.
 
@@ -116,6 +120,7 @@ cuDNN 9를 번들해 **같은 프로세스에서 동시에 못 올린다**(`WinE
 자체 점검:
 ```
 python -m backend.labels      # 파일 IO
+python -m backend.projects    # 프로젝트·폴더 CRUD + 드래그 이동
 python -m backend.llm         # 파싱/변환
 python -m backend.pipeline <image_path>   # 로컬 파이프라인 (모델·deps 필요)
 ```

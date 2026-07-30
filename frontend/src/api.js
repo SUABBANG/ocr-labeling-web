@@ -32,3 +32,10 @@ export const listProjects = () => j('/api/projects')
 export const createProject = (data) => jbody('/api/projects', 'POST', data)
 export const updateProject = (id, data) => jbody(`/api/projects/${id}`, 'PUT', data)
 export const deleteProject = (id) => j(`/api/projects/${id}`, { method: 'DELETE' })
+export const moveProject = (id, group) => jbody(`/api/projects/${id}/group`, 'PUT', { group })
+
+// --- 프로젝트 폴더(그룹) ---
+export const listGroups = () => j('/api/groups')
+export const createGroup = (data) => jbody('/api/groups', 'POST', data)
+export const updateGroup = (id, data) => jbody(`/api/groups/${id}`, 'PUT', data)
+export const deleteGroup = (id) => j(`/api/groups/${id}`, { method: 'DELETE' })

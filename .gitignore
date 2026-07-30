@@ -4,6 +4,7 @@ model
 .env.*
 !.env.example
 projects.json
+groups.json
 # 모델 가중치가 model/ 밖에 놓여도 커밋 방지
 *.pth
 *.pdiparams
