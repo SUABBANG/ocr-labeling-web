@@ -142,6 +142,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .img-row .dot { color: var(--ok); font-size: 10px; }
 .img-row .chk-text { accent-color: #1a73e8; }
 .img-row .chk-cell { accent-color: var(--accent); }
+.img-row .chk-item { accent-color: #7b3fe4; }
 
 .canvas-area { flex: 1 1 0; min-width: 0; position: relative; background: #2a2f3a; }
 .badge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65); color: #fff; padding: 5px 10px; border-radius: 8px; font-size: 13px; }

@@ -54,7 +54,8 @@ def list_images(folder: str) -> list[dict]:
         legacy = bool(data.get("done", False))   # 구 단일 done 폴백
         out.append({"name": p.name, "has_label": lp.exists(),
                     "text_done": bool(data.get("text_done", legacy)),
-                    "cell_done": bool(data.get("cell_done", legacy))})
+                    "cell_done": bool(data.get("cell_done", legacy)),
+                    "item_done": bool(data.get("item_done", False))})
     return out
 
 
@@ -64,7 +65,7 @@ def read_label(folder: str, name: str) -> dict:
     if lp.exists():
         return json.loads(lp.read_text("utf-8"))
     return {"image": name, "source": "manual",
-            "text_done": False, "cell_done": False, "words": []}
+            "text_done": False, "cell_done": False, "item_done": False, "words": []}
 
 
 def write_label(folder: str, name: str, data: dict) -> None:
@@ -89,7 +90,7 @@ def demo() -> None:
         (Path(d) / "images").mkdir()
         (Path(d) / "images" / "a.png").write_bytes(b"x")
         assert list_images(d) == [{"name": "a.png", "has_label": False,
-                                   "text_done": False, "cell_done": False}]
+                                   "text_done": False, "cell_done": False, "item_done": False}]
         lbl = {"image": "a.png", "source": "manual", "text_done": True, "cell_done": False,
                "words": [{"id": "w1", "text": "hi", "poly": [[0, 0], [1, 0], [1, 1], [0, 1]]}]}
         write_label(d, "a.png", lbl)
@@ -99,7 +100,7 @@ def demo() -> None:
         # 레거시 done → 두 플래그 폴백
         write_label(d, "a.png", {"image": "a.png", "done": True, "words": []})
         assert list_images(d)[0] == {"name": "a.png", "has_label": True,
-                                     "text_done": True, "cell_done": True}
+                                     "text_done": True, "cell_done": True, "item_done": False}
         try:
             _safe_under(d, "..", "etc")
             raise AssertionError("traversal 미차단")

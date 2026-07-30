@@ -91,6 +91,7 @@ export default function Labeler({ project, onExit }) {
 
   const textDone = useMemo(() => images.filter((i) => i.text_done).length, [images])
   const cellDone = useMemo(() => images.filter((i) => i.cell_done).length, [images])
+  const itemDone = useMemo(() => images.filter((i) => i.item_done).length, [images])
   // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells, KEY/VALUE=item)
   const visibleWords = useMemo(() => label?.[wkey] || [], [label, wkey])
   const items = useMemo(() => label?.item || [], [label])   // KEY/VALUE 쌍 목록
@@ -117,6 +118,7 @@ export default function Labeler({ project, onExit }) {
   }, [folder])
 
   const save = useCallback(async () => {
+    const label = labelRef.current   // 최신 label(완료 토글 등)을 stale 클로저 대신 ref로 읽음
     if (!label || !name) return
     // id를 배열 순서대로 재번호(words=w1.., cells=c1..) → JSON id가 순서를 반영
     const idMap = {}
@@ -126,13 +128,13 @@ export default function Labeler({ project, onExit }) {
     const next = { ...label, words, cells, item }
     try {
       await api.putLabel(folder, name, next)
-      setLabel(next)
+      setLabel(next); labelRef.current = next
       setSelectedId((sid) => (sid ? idMap[sid] || null : null))
       setDirty(false)
       setImages((xs) => xs.map((i) => i.name === name
-        ? { ...i, has_label: true, text_done: !!next.text_done, cell_done: !!next.cell_done } : i))
+        ? { ...i, has_label: true, text_done: !!next.text_done, cell_done: !!next.cell_done, item_done: !!next.item_done } : i))
     } catch (e) { alert('저장 실패: ' + e.message) }
-  }, [folder, name, label])
+  }, [folder, name])
 
   const selectImage = useCallback(async (n) => {
     if (autoSave && dirty) await save()   // 자동저장 ON: 페이지 전환 전 현재 라벨 저장
@@ -289,16 +291,17 @@ export default function Labeler({ project, onExit }) {
     } catch (e2) { alert('삭제 실패: ' + e2.message) }
   }
 
-  const toggleDone = useCallback(async (kind) => {   // kind: 'text' | 'cell' (item 탭은 완료 플래그 없음)
-    if (!label || !name || (kind !== 'text' && kind !== 'cell')) return
-    const k = kind === 'cell' ? 'cell_done' : 'text_done'
-    const next = { ...label, [k]: !label[k] }
-    setLabel(next)
+  const toggleDone = useCallback(async (kind) => {   // kind: 'text' | 'cell' | 'item'
+    const cur = labelRef.current   // 최신 label을 ref로(자동저장과 stale 클로저 충돌 방지)
+    if (!cur || !name || !['text', 'cell', 'item'].includes(kind)) return
+    const k = kind === 'cell' ? 'cell_done' : kind === 'item' ? 'item_done' : 'text_done'
+    const next = { ...cur, [k]: !cur[k] }
+    setLabel(next); labelRef.current = next
     try {
       await api.putLabel(folder, name, next)
       setImages((xs) => xs.map((i) => i.name === name ? { ...i, [k]: next[k] } : i))
     } catch (e) { alert('저장 실패: ' + e.message) }
-  }, [folder, name, label])
+  }, [folder, name])
 
   const moveImage = useCallback((delta) => {
     if (!images.length) return
@@ -389,14 +392,16 @@ export default function Labeler({ project, onExit }) {
 
       <div className="workspace">
         <div className="side left" style={{ width: leftW }}>
-          <div className="side-head">완료 텍스트 {textDone} · 셀 {cellDone} / {images.length}</div>
+          <div className="side-head">완료 텍스트 {textDone} · 셀 {cellDone} · K/V {itemDone} / {images.length}</div>
           {images.map((im) => (
             <div key={im.name} className={'img-row' + (im.name === name ? ' active' : '')}
               onClick={() => selectImage(im.name)}>
-              <input className="chk-text" type="checkbox" title="텍스트박스 완료" checked={im.text_done} readOnly
+              <input className="chk-text" type="checkbox" title="텍스트박스 완료" checked={!!im.text_done} readOnly
                 onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone('text') }} />
-              <input className="chk-cell" type="checkbox" title="테이블셀 완료" checked={im.cell_done} readOnly
+              <input className="chk-cell" type="checkbox" title="테이블셀 완료" checked={!!im.cell_done} readOnly
                 onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone('cell') }} />
+              <input className="chk-item" type="checkbox" title="KEY/VALUE 완료" checked={!!im.item_done} readOnly
+                onClick={(e) => { e.stopPropagation(); if (im.name === name) toggleDone('item') }} />
               <span className="name">{im.name}</span>
               {im.has_label && <span className="dot">●</span>}
               <button className="danger" title="삭제" onClick={(e) => deleteImg(e, im.name)}>×</button>
