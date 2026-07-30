@@ -15,7 +15,6 @@ export const ACTIONS = {
   toggleDone: '완료 토글(현재 모드)',
   toggleEditShape: '편집모드(bbox/poly)',
   advance: '다음 이미지로(자동저장 반영)',
-  cycleType: 'key/value 전환',
   undo: '실행 취소',
 }
 
@@ -33,7 +32,6 @@ const DEFAULTS = {
   toggleDone: 'c',
   toggleEditShape: 'b',
   advance: 'PageDown',
-  cycleType: 'k',
   undo: 'Ctrl+z',
 }
 

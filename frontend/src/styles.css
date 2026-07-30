@@ -122,19 +122,28 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .word-row { display: flex; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 8px; }
 .word-row:hover { background: #f7f9fc; }
 .word-row.active { background: #fff0f0; }
-.word-row input { flex: 1; padding: 5px 8px; }
+.word-row input { flex: 1; min-width: 0; padding: 5px 8px; }
 .word-row .cell-tag { flex: 1; color: var(--accent); font-size: 13px; }
 /* 인쇄(인)/필기(필) 토글 */
 .script-btn { flex: 0 0 auto; padding: 4px 7px; font-size: 12px; border-radius: 6px;
   background: #e7efff; color: var(--primary-d); border-color: transparent; }
 .script-btn.hw { background: #f3e8ff; color: #7b3fe4; }
-/* key/value 토글 + 선택 시 입력칸 색 */
-.kv-btn { flex: 0 0 auto; padding: 4px 7px; font-size: 12px; border-radius: 6px;
-  background: #eef1f4; color: #8a95a3; border-color: transparent; }
+/* KEY/VALUE 아이템 배지 + 입력칸 색 (오른쪽 KEY/VALUE 탭) */
+.kv-btn { flex: 0 0 auto; padding: 4px 7px; font-size: 12px; border-radius: 6px; border-color: transparent; }
 .kv-btn.key { background: #dcefe0; color: #1b7f3b; }
-.kv-btn.value { background: #ffe6cc; color: #b3600a; }
-.word-row input.kv-key { background: #eafaef; border-color: #1b7f3b; }
-.word-row input.kv-value { background: #fff2e3; border-color: #b3600a; }
+.kv-btn.value { background: #efe0ff; color: #7b3fe4; }
+.word-row input.kv-key { background: #eafaef; border-color: #1b9e4b; }
+.word-row input.kv-value { background: #f6edff; border-color: #9333ea; }
+/* KEY/VALUE 쌍 카드 (오른쪽 바) */
+.item-card { border: 1px solid var(--border); border-radius: 10px; padding: 6px; margin-bottom: 8px; }
+.item-card.active { border-color: var(--primary); background: #f7faff; }
+.item-card .word-row.val { margin-left: 14px; }
+.item-card .add-value { width: 100%; margin-top: 4px; font-size: 12px; color: var(--muted);
+  border-style: dashed; background: transparent; }
+.item-card .add-value:hover { color: #9333ea; border-color: #9333ea; }
+/* 툴바 KEY/VALUE 그리기 토글 */
+.toggle-kv.key { background: #1b9e4b; color: #fff; border-color: transparent; }
+.toggle-kv.value { background: #9333ea; color: #fff; border-color: transparent; }
 .drag-handle { flex: 0 0 auto; cursor: grab; color: #b8c0cc; user-select: none; padding: 0 2px; font-size: 14px; }
 .drag-handle:active { cursor: grabbing; }
 
@@ -147,5 +156,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); box-sh
 .mode-tabs button + button { border-left: 1px solid var(--border); }
 .mode-tabs button.active { background: var(--primary); color: #fff; }
 .mode-tabs button.active.cell { background: var(--accent); }
+.mode-tabs button.active.item { background: #7b3fe4; }
 
 .edit-shape { font-variant-numeric: tabular-nums; background: #eef1f6; }

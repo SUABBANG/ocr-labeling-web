@@ -164,9 +164,11 @@ function rectFrom(p, q) {
 
 function WordShape({ word, selected, strokeWidth, editable, editShape, onSelect, onEditStart, onChange }) {
   const flat = word.poly.flat()
-  const cell = word.kind === 'cell'
-  const base = cell ? '#ffa000' : '#00b0ff'   // 셀=주황, 텍스트=파랑
-  const fill = cell ? 'rgba(255,160,0,0.06)' : 'rgba(0,176,255,0.05)'
+  // 셀=주황, key=초록, value=보라, 텍스트=파랑
+  const base = word.kind === 'cell' ? '#ffa000'
+    : word.type === 'key' ? '#1b9e4b' : word.type === 'value' ? '#9333ea' : '#00b0ff'
+  const fill = word.kind === 'cell' ? 'rgba(255,160,0,0.06)'
+    : word.type === 'key' ? 'rgba(27,158,75,0.08)' : word.type === 'value' ? 'rgba(147,51,234,0.08)' : 'rgba(0,176,255,0.05)'
   return (
     <>
       <Line

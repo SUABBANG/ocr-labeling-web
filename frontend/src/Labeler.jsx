@@ -10,7 +10,9 @@ export default function Labeler({ project, onExit }) {
   const [label, setLabel] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [newMode, setNewMode] = useState(false)
-  const [mode, setMode] = useState('text')   // 'text' | 'cell' — 라벨링 종류
+  // KEY/VALUE 그리기: null=다음 박스는 새 item의 key, <itemId>=다음 박스는 그 item의 value
+  const [pendingValue, setPendingValue] = useState(null)
+  const [mode, setMode] = useState('text')   // 'text' | 'cell' | 'item' — 라벨링 종류
   const [editShape, setEditShape] = useState('bbox') // 'bbox'(사각형 유지) | 'poly'(꼭짓점)
   const [panMode, setPanMode] = useState(false)
   const [engine, setEngine] = useState('llm')
@@ -26,8 +28,10 @@ export default function Labeler({ project, onExit }) {
   const rowRefs = useRef({})                  // 우 패널 각 행 (선택 시 자동 스크롤)
   const dragId = useRef(null)                 // 드래그 중인 워드 id
 
-  // 현재 모드가 쓰는 라벨 배열 키: 텍스트='words', 테이블셀='cells'
-  const wkey = mode === 'cell' ? 'cells' : 'words'
+  // 현재 모드가 쓰는 라벨 배열 키: 텍스트='words', 테이블셀='cells', KEY/VALUE='item'
+  const wkey = mode === 'cell' ? 'cells' : mode === 'item' ? 'item' : 'words'
+  // id 접두어로 소속 배열 판별 (w=words, c=cells, i=item)
+  const keyOf = (id) => (id?.[0] === 'i' ? 'item' : id?.[0] === 'c' ? 'cells' : 'words')
 
   // 순서 변경: fromId를 toId 위치로 이동 (현재 모드 배열 기준)
   const moveWord = (fromId, toId) => {
@@ -87,8 +91,26 @@ export default function Labeler({ project, onExit }) {
 
   const textDone = useMemo(() => images.filter((i) => i.text_done).length, [images])
   const cellDone = useMemo(() => images.filter((i) => i.cell_done).length, [images])
-  // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells)
+  // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells, KEY/VALUE=item)
   const visibleWords = useMemo(() => label?.[wkey] || [], [label, wkey])
+  const items = useMemo(() => label?.item || [], [label])   // KEY/VALUE 쌍 목록
+  // 캔버스용: item(key+value 중첩)을 개별 박스로 평탄화. 박스 id = <itemId>k | <itemId>v<idx>
+  const editorBoxes = useMemo(() => {
+    if (mode !== 'item') return visibleWords
+    return items.flatMap((it) => {
+      const boxes = it.key?.poly ? [{ id: it.id + 'k', type: 'key', poly: it.key.poly }] : []
+      ;(it.value || []).forEach((v, i) => boxes.push({ id: it.id + 'v' + i, type: 'value', poly: v.poly }))
+      return boxes
+    })
+  }, [mode, visibleWords, items])
+  // 평탄화 박스 id 파싱 → { itemId, part:'key'|'value', vi }
+  const parseItemBox = (id) => {
+    const mv = /^(i\d+)v(\d+)$/.exec(id)
+    if (mv) return { itemId: mv[1], part: 'value', vi: +mv[2] }
+    const mk = /^(i\d+)k$/.exec(id)
+    if (mk) return { itemId: mk[1], part: 'key' }
+    return null
+  }
 
   useEffect(() => {
     api.listImages(folder).then(setImages).catch((e) => alert('폴더 조회 실패: ' + e.message))
@@ -100,7 +122,8 @@ export default function Labeler({ project, onExit }) {
     const idMap = {}
     const words = (label.words || []).map((w, i) => { idMap[w.id] = `w${i + 1}`; return { ...w, id: `w${i + 1}` } })
     const cells = (label.cells || []).map((c, i) => { idMap[c.id] = `c${i + 1}`; return { ...c, id: `c${i + 1}` } })
-    const next = { ...label, words, cells }
+    const item = (label.item || []).map((t, i) => { idMap[t.id] = `i${i + 1}`; return { ...t, id: `i${i + 1}` } })
+    const next = { ...label, words, cells, item }
     try {
       await api.putLabel(folder, name, next)
       setLabel(next)
@@ -113,14 +136,14 @@ export default function Labeler({ project, onExit }) {
 
   const selectImage = useCallback(async (n) => {
     if (autoSave && dirty) await save()   // 자동저장 ON: 페이지 전환 전 현재 라벨 저장
-    setName(n); setSelectedId(null); setNewMode(false)
+    setName(n); setSelectedId(null); setNewMode(false); setPendingValue(null)
     historyRef.current = []; textSession.current = null   // 이미지 넘어가면 히스토리 초기화
     try { setLabel(await api.getLabel(folder, n)); setDirty(false) }
     catch (e) { alert('라벨 로드 실패: ' + e.message) }
   }, [folder, autoSave, dirty, save])
 
   const runModel = useCallback(async () => {
-    if (!name) return
+    if (!name || mode === 'item') return   // KEY/VALUE 탭은 모델 미지원(수동)
     setBusy('모델 실행 중…')
     pushHistory(); endTextSession()   // 모델 결과로 덮기 전 상태 저장 → 취소 가능
     try {
@@ -133,18 +156,40 @@ export default function Labeler({ project, onExit }) {
   }, [folder, name, engine, mode])
 
   const changeWord = (id, poly) => {
-    // 히스토리는 드래그 시작(onEditStart)에서 1회 저장 — 여기선 저장하지 않음
-    setLabel((l) => ({ ...l, [wkey]: (l[wkey] || []).map((w) => w.id === id ? { ...w, poly } : w) }))
+    // 히스토리는 드래그 시작(onEditStart)에서 1회 저장 — 여기선 저장하지 않음.
+    const b = id[0] === 'i' ? parseItemBox(id) : null
+    if (b) {   // KEY/VALUE 박스: item 내부 key/value의 poly 갱신
+      setLabel((l) => ({ ...l, item: l.item.map((it) => it.id !== b.itemId ? it
+        : b.part === 'key' ? { ...it, key: { ...it.key, poly } }
+          : { ...it, value: it.value.map((v, i) => i === b.vi ? { ...v, poly } : v) }) }))
+      setDirty(true); return
+    }
+    const k = keyOf(id)
+    setLabel((l) => ({ ...l, [k]: (l[k] || []).map((w) => w.id === id ? { ...w, poly } : w) }))
     setDirty(true)
   }
   const changeText = (id, text) => {
     if (textSession.current !== id) { pushHistory(); textSession.current = id } // 연속 입력 1스텝
-    setLabel((l) => ({ ...l, words: l.words.map((w) => w.id === id ? { ...w, text } : w) }))
+    setLabel((l) => {
+      const words = l.words.map((w) => w.id === id ? { ...w, text } : w)
+      // 이 word를 포함하는 key/value 박스의 text 재수집(그 word를 쓰는 KEY/VALUE도 함께 갱신)
+      const w = words.find((x) => x.id === id)
+      const c = w && boxCenter(w.poly)
+      const item = c ? (l.item || []).map((it) => ({
+        ...it,
+        key: it.key && contains(it.key.poly, c) ? { ...it.key, text: collectFrom(words, it.key.poly) } : it.key,
+        value: (it.value || []).map((v) => contains(v.poly, c) ? { ...v, text: collectFrom(words, v.poly) } : v),
+      })) : l.item
+      return { ...l, words, item }
+    })
     setDirty(true)
   }
   const deleteWord = (id) => {
+    const b = id[0] === 'i' ? parseItemBox(id) : null
+    if (b) { b.part === 'key' ? deleteItem(b.itemId) : deleteValue(b.itemId, b.vi); return }
     pushHistory(); endTextSession()
-    setLabel((l) => ({ ...l, [wkey]: (l[wkey] || []).filter((w) => w.id !== id) }))
+    const k = keyOf(id)
+    setLabel((l) => ({ ...l, [k]: (l[k] || []).filter((w) => w.id !== id) }))
     setSelectedId(null); setDirty(true)
   }
   const addWord = (poly) => {
@@ -165,23 +210,74 @@ export default function Labeler({ project, onExit }) {
     }))
     setDirty(true)
   }
-  const toggleType = (id) => {   // 없음 → key → value → 없음
-    const next = { undefined: 'key', key: 'value', value: undefined }
+  // poly(사각형) 바운딩박스 [x1,y1,x2,y2] 와 중심 [cx,cy]
+  const rectOf = (poly) => {
+    const xs = poly.map((p) => p[0]); const ys = poly.map((p) => p[1])
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+  }
+  const boxCenter = (poly) => { const [x1, y1, x2, y2] = rectOf(poly); return [(x1 + x2) / 2, (y1 + y2) / 2] }
+  const contains = (poly, [cx, cy]) => { const [x1, y1, x2, y2] = rectOf(poly); return cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2 }
+  // poly 안에 중심이 들어오는 word들의 text를 왼→오로 이어붙임
+  const collectFrom = (words, poly) => words
+    .map((w) => ({ text: w.text, c: boxCenter(w.poly) }))
+    .filter((w) => contains(poly, w.c))
+    .sort((a, b) => a.c[0] - b.c[0])
+    .map((w) => w.text).filter(Boolean).join(' ')
+  const collectText = (poly) => collectFrom(labelRef.current?.words || [], poly)
+  // KEY/VALUE 그리기 흐름: pendingValue 없으면 새 item의 key 생성(→다음 박스는 value 대기),
+  // 있으면 그 item에 value 추가.
+  const onDrawItem = (poly) => {
+    if (pendingValue) { appendValue(pendingValue, poly); setPendingValue(null) }
+    else {
+      const id = 'i' + Date.now()
+      pushHistory(); endTextSession()
+      setLabel((l) => ({ ...l, item: [...(l.item || []), { id, key: { poly, text: collectText(poly) }, value: [] }] }))
+      setSelectedId(id + 'k'); setDirty(true)
+      setPendingValue(id)   // 다음 박스는 이 item의 value(필수 2번째)
+    }
+  }
+  const appendValue = (itemId, poly) => {
     pushHistory(); endTextSession()
-    setLabel((l) => ({
-      ...l,
-      words: l.words.map((w) => w.id === id ? { ...w, type: next[w.type] } : w),
-    }))
+    setLabel((l) => ({ ...l, item: l.item.map((it) => it.id !== itemId ? it
+      : { ...it, value: [...(it.value || []), { poly, text: collectText(poly) }] }) }))
+    setSelectedId(itemId + 'v' + (items.find((it) => it.id === itemId)?.value.length || 0))
     setDirty(true)
+  }
+  // 오른쪽 바 '＋value 박스 추가' → 다음 박스를 이 item의 value로
+  const startAddValue = (itemId) => { setPendingValue(itemId); setNewMode(true); setSelectedId(itemId + 'k') }
+  const setKeyText = (itemId, text) => {
+    if (textSession.current !== itemId + 'k') { pushHistory(); textSession.current = itemId + 'k' }
+    setLabel((l) => ({ ...l, item: l.item.map((it) => it.id === itemId ? { ...it, key: { ...it.key, text } } : it) }))
+    setDirty(true)
+  }
+  const setValueText = (itemId, vi, text) => {
+    const sess = itemId + 'v' + vi
+    if (textSession.current !== sess) { pushHistory(); textSession.current = sess }
+    setLabel((l) => ({ ...l, item: l.item.map((it) => it.id !== itemId ? it
+      : { ...it, value: it.value.map((v, i) => i === vi ? { ...v, text } : v) }) }))
+    setDirty(true)
+  }
+  const deleteItem = (itemId) => {
+    pushHistory(); endTextSession()
+    setLabel((l) => ({ ...l, item: (l.item || []).filter((it) => it.id !== itemId) }))
+    if (pendingValue === itemId) setPendingValue(null)
+    setSelectedId(null); setDirty(true)
+  }
+  const deleteValue = (itemId, vi) => {
+    pushHistory(); endTextSession()
+    setLabel((l) => ({ ...l, item: l.item.map((it) => it.id !== itemId ? it
+      : { ...it, value: it.value.filter((_, i) => i !== vi) }) }))
+    setSelectedId(null); setDirty(true)
   }
   const deleteAllVisible = () => {
     if (!visibleWords.length) return
-    if (!confirm(`현재 모드(${mode === 'cell' ? '테이블셀' : '텍스트'}) 박스 ${visibleWords.length}개를 모두 삭제할까요?`)) return
+    const modeName = mode === 'cell' ? '테이블셀' : mode === 'item' ? 'KEY/VALUE' : '텍스트'
+    if (!confirm(`현재 모드(${modeName}) 박스 ${visibleWords.length}개를 모두 삭제할까요?`)) return
     pushHistory(); endTextSession()
     setLabel((l) => ({ ...l, [wkey]: [] }))
     setSelectedId(null); setDirty(true)
   }
-  const switchMode = (m) => { setMode(m); setSelectedId(null); setNewMode(false); endTextSession() }
+  const switchMode = (m) => { setMode(m); setSelectedId(null); setNewMode(false); setPendingValue(null); endTextSession() }
 
   const deleteImg = async (e, n) => {
     e.stopPropagation()
@@ -193,8 +289,8 @@ export default function Labeler({ project, onExit }) {
     } catch (e2) { alert('삭제 실패: ' + e2.message) }
   }
 
-  const toggleDone = useCallback(async (kind) => {   // kind: 'text' | 'cell'
-    if (!label || !name) return
+  const toggleDone = useCallback(async (kind) => {   // kind: 'text' | 'cell' (item 탭은 완료 플래그 없음)
+    if (!label || !name || (kind !== 'text' && kind !== 'cell')) return
     const k = kind === 'cell' ? 'cell_done' : 'text_done'
     const next = { ...label, [k]: !label[k] }
     setLabel(next)
@@ -228,7 +324,8 @@ export default function Labeler({ project, onExit }) {
         prevImage: () => moveImage(-1),
         nextImage: () => moveImage(1),
         editText: () => selectedId && wordInputs.current[selectedId]?.focus(),
-        cancel: () => { setSelectedId(null); setNewMode(false) },
+        // KEY/VALUE에서 value 대기 중이면 ESC는 value 없이 key만 저장(대기 해제), 아니면 일반 취소
+        cancel: () => { if (pendingValue) { setPendingValue(null); return } setSelectedId(null); setNewMode(false) },
         deleteBox: () => selectedId && deleteWord(selectedId),
         newBox: () => setNewMode((v) => !v),
         save,
@@ -238,7 +335,6 @@ export default function Labeler({ project, onExit }) {
         toggleDone: () => toggleDone(mode),   // 현재 모드(text/cell) 완료 토글
         toggleEditShape: () => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox')),
         advance: () => moveImage(1),
-        cycleType: () => mode === 'text' && selectedId && toggleType(selectedId),
         undo,
       }
       if (handlers[action]) { e.preventDefault(); handlers[action]() }
@@ -250,7 +346,7 @@ export default function Labeler({ project, onExit }) {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [keys, selectedId, newMode, mode, moveImage, save, runModel, toggleDone, undo])
+  }, [keys, selectedId, newMode, mode, pendingValue, moveImage, save, runModel, toggleDone, undo])
 
   return (
     <div className="labeler">
@@ -263,12 +359,13 @@ export default function Labeler({ project, onExit }) {
           <div className="mode-tabs">
             <button className={mode === 'text' ? 'active' : ''} onClick={() => switchMode('text')}>텍스트</button>
             <button className={mode === 'cell' ? 'active cell' : ''} onClick={() => switchMode('cell')}>테이블셀</button>
+            <button className={mode === 'item' ? 'active item' : ''} onClick={() => switchMode('item')}>KEY/VALUE</button>
           </div>
           <select value={engine} onChange={(e) => setEngine(e.target.value)}>
             <option value="llm">LLM</option>
             <option value="local">로컬 모델</option>
           </select>
-          <button onClick={runModel} disabled={!name || busy}
+          <button onClick={runModel} disabled={!name || busy || mode === 'item'}
             title={`모델 실행 (단축키 ${keys.runModel})`}>모델 실행</button>
           <button className="primary" onClick={save} disabled={!dirty}
             title={`저장 (단축키 ${keys.save})`}>저장{dirty ? ' *' : ''}</button>
@@ -277,9 +374,9 @@ export default function Labeler({ project, onExit }) {
               onChange={(e) => { setAutoSave(e.target.checked); localStorage.setItem('autoSave', e.target.checked ? '1' : '0') }} />
             자동저장
           </label>
-          <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : 'toggle-on') : ''}
+          <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : mode === 'item' ? 'toggle-kv ' + (pendingValue ? 'value' : 'key') : 'toggle-on') : ''}
             title={`박스 그리기/선택 전환 (단축키 ${keys.newBox})`}
-            onClick={() => setNewMode((v) => !v)}>＋{mode === 'cell' ? '셀' : '텍스트'} 그리기</button>
+            onClick={() => setNewMode((v) => !v)}>＋{mode === 'item' ? (pendingValue ? 'VALUE' : 'KEY') : mode === 'cell' ? '셀' : '텍스트'} 그리기</button>
           <button className="edit-shape" title="편집 모드 전환 (단축키 B)"
             onClick={() => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox'))}>
             편집: {editShape === 'bbox' ? '□ bbox' : '◇ poly'}
@@ -314,57 +411,80 @@ export default function Labeler({ project, onExit }) {
             <Editor
               ref={editorRef}
               imageUrl={api.imageUrl(folder, name)}
-              words={visibleWords}
+              words={editorBoxes}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onChangeWord={changeWord}
               onEditStart={() => { pushHistory(); endTextSession() }}
-              onNewBox={addWord}
+              onNewBox={(poly) => (mode === 'item' ? onDrawItem(poly) : addWord(poly))}
               newMode={newMode}
               panMode={panMode}
               editShape={editShape}
             />
           )}
           {busy && <div className="badge">{busy}</div>}
+          {mode === 'item' && pendingValue && !busy &&
+            <div className="badge">VALUE 박스를 그리세요 · ESC = 값 없이 저장</div>}
         </div>
 
         <div className="resizer" onMouseDown={startResize('right')} />
 
         <div className="side right" style={{ width: rightW }}>
           <div className="side-head">
-            {mode === 'cell' ? '테이블 셀' : '텍스트'} {visibleWords.length}개{label?.source ? ` · ${label.source}` : ''}
+            {mode === 'cell' ? `테이블 셀 ${visibleWords.length}개`
+              : mode === 'item' ? `KEY/VALUE ${visibleWords.length}개` : `텍스트 ${visibleWords.length}개`}
+            {label?.source ? ` · ${label.source}` : ''}
           </div>
           <div style={{ padding: 6 }}>
-            {visibleWords.map((w) => (
-              <div key={w.id} ref={(el) => { rowRefs.current[w.id] = el }}
-                className={'word-row' + (w.id === selectedId ? ' active' : '')}
-                onClick={() => setSelectedId(w.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => moveWord(dragId.current, w.id)}>
-                <span className="drag-handle" draggable
-                  onDragStart={() => { dragId.current = w.id }}
-                  onClick={(e) => e.stopPropagation()} title="드래그로 순서 변경">⠿</span>
-                {w.kind === 'cell' ? (
-                  <span className="cell-tag">［테이블 셀］</span>
-                ) : (
-                  <>
-                    <button className={'script-btn' + (w.script === 'handwriting' ? ' hw' : '')}
-                      title="인쇄/필기 전환" onClick={(e) => { e.stopPropagation(); toggleScript(w.id) }}>
-                      {w.script === 'handwriting' ? '필' : '인'}
-                    </button>
-                    <button className={'kv-btn' + (w.type ? ' ' + w.type : '')}
-                      title="key/value 전환" onClick={(e) => { e.stopPropagation(); toggleType(w.id) }}>
-                      {w.type === 'key' ? 'K' : w.type === 'value' ? 'V' : '·'}
-                    </button>
-                    <input ref={(el) => { wordInputs.current[w.id] = el }}
-                      className={w.type ? 'kv-' + w.type : ''} value={w.text}
-                      onChange={(e) => changeText(w.id, e.target.value)}
-                      onFocus={() => setSelectedId(w.id)} />
-                  </>
-                )}
-                <button className="danger" onClick={() => deleteWord(w.id)}>×</button>
-              </div>
-            ))}
+            {mode === 'item' ? (
+              items.map((it) => (
+                <div key={it.id} className={'item-card' + (parseItemBox(selectedId || '')?.itemId === it.id ? ' active' : '')}>
+                  <div className="word-row" onClick={() => setSelectedId(it.id + 'k')}>
+                    <button className="kv-btn key" title="KEY">KEY</button>
+                    <input ref={(el) => { wordInputs.current[it.id + 'k'] = el }} className="kv-key" value={it.key?.text || ''}
+                      onChange={(e) => setKeyText(it.id, e.target.value)}
+                      onFocus={() => setSelectedId(it.id + 'k')} />
+                    <button className="danger" title="쌍 삭제" onClick={() => deleteItem(it.id)}>×</button>
+                  </div>
+                  {(it.value || []).map((v, vi) => (
+                    <div className="word-row val" key={vi} onClick={() => setSelectedId(it.id + 'v' + vi)}>
+                      <button className="kv-btn value" title="VALUE">VAL</button>
+                      <input ref={(el) => { wordInputs.current[it.id + 'v' + vi] = el }} className="kv-value" value={v.text}
+                        onChange={(e) => setValueText(it.id, vi, e.target.value)}
+                        onFocus={() => setSelectedId(it.id + 'v' + vi)} />
+                      <button className="danger" title="value 삭제" onClick={() => deleteValue(it.id, vi)}>×</button>
+                    </div>
+                  ))}
+                  <button className="add-value" onClick={() => startAddValue(it.id)}>＋ value 박스 추가</button>
+                </div>
+              ))
+            ) : (
+              visibleWords.map((w) => (
+                <div key={w.id} ref={(el) => { rowRefs.current[w.id] = el }}
+                  className={'word-row' + (w.id === selectedId ? ' active' : '')}
+                  onClick={() => setSelectedId(w.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => moveWord(dragId.current, w.id)}>
+                  <span className="drag-handle" draggable
+                    onDragStart={() => { dragId.current = w.id }}
+                    onClick={(e) => e.stopPropagation()} title="드래그로 순서 변경">⠿</span>
+                  {w.kind === 'cell' ? (
+                    <span className="cell-tag">［테이블 셀］</span>
+                  ) : (
+                    <>
+                      <button className={'script-btn' + (w.script === 'handwriting' ? ' hw' : '')}
+                        title="인쇄/필기 전환" onClick={(e) => { e.stopPropagation(); toggleScript(w.id) }}>
+                        {w.script === 'handwriting' ? '필' : '인'}
+                      </button>
+                      <input ref={(el) => { wordInputs.current[w.id] = el }} value={w.text}
+                        onChange={(e) => changeText(w.id, e.target.value)}
+                        onFocus={() => setSelectedId(w.id)} />
+                    </>
+                  )}
+                  <button className="danger" onClick={() => deleteWord(w.id)}>×</button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
