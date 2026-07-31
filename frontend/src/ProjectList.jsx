@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as api from './api.js'
+import { colorForKey } from './keycolors.js'
 
 export default function ProjectList({ onEnter }) {
   const [projects, setProjects] = useState([])
@@ -8,6 +9,7 @@ export default function ProjectList({ onEnter }) {
   const [editingGroup, setEditingGroup] = useState(null) // null | {} (신규) | group (수정)
   const [dropTarget, setDropTarget] = useState(undefined) // 드롭 하이라이트 대상(그룹 id | null=미분류)
   const [loading, setLoading] = useState(true)        // 첫 로드 완료 전까지 로딩 표시
+  const [showKeys, setShowKeys] = useState(false)     // KEY 리스트 관리 모달
   const [expanded, setExpanded] = useState({})        // 펼친 폴더 id (기본 접힘 = 내부 숨김)
   const dragPid = useRef(null)                        // 드래그 중인 프로젝트 id
 
@@ -73,6 +75,7 @@ export default function ProjectList({ onEnter }) {
         <h1>OCR 라벨링 프로젝트</h1>
         <span className="count">{loading ? '로딩 중…' : `${projects.length}개 · 폴더 ${groups.length}`}</span>
         <span style={{ flex: 1 }} />
+        <button onClick={() => setShowKeys(true)}>🔑 KEY 리스트</button>
         {!loading && <button onClick={() => setEditingGroup({})}>＋ 새 폴더</button>}
       </div>
 
@@ -126,6 +129,76 @@ export default function ProjectList({ onEnter }) {
           onSaved={() => { setEditingGroup(null); refresh() }}
         />
       )}
+      {showKeys && <KeyListManager onClose={() => setShowKeys(false)} />}
+    </div>
+  )
+}
+
+const KEY_TYPES = [
+  { id: 'deid', label: '비식별화 대상' },
+  { id: 'extract', label: 'VALUE 추출' },
+]
+
+// KEY 리스트 관리: 타입별(비식별화/VALUE추출) 추가·수정·삭제
+function KeyListManager({ onClose }) {
+  const [keys, setKeys] = useState(null)
+  const [name, setName] = useState('')
+  const [type, setType] = useState('deid')
+  const [editId, setEditId] = useState(null)   // 수정 중인 key id
+
+  const load = () => api.listKeys().then(setKeys).catch((e) => alert('KEY 로드 실패: ' + e.message))
+  useEffect(() => { load() }, [])
+
+  const submit = async () => {
+    if (!name.trim()) return
+    try {
+      if (editId) await api.updateKey(editId, { name, type })
+      else await api.createKey({ name, type })
+      setName(''); setEditId(null); load()
+    } catch (e) { alert('저장 실패: ' + e.message) }
+  }
+  const edit = (k) => { setEditId(k.id); setName(k.name); setType(k.type) }
+  const del = async (k) => {
+    if (!confirm(`KEY "${k.name}" 삭제할까요?`)) return
+    try { await api.deleteKey(k.id); if (editId === k.id) { setEditId(null); setName('') }; load() }
+    catch (e) { alert('삭제 실패: ' + e.message) }
+  }
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal keylist" onClick={(e) => e.stopPropagation()}>
+        <h3>KEY 리스트</h3>
+        {keys == null ? <div>불러오는 중…</div> : KEY_TYPES.map((t) => (
+          <div key={t.id} className="key-group">
+            <div className={'key-type-head ' + t.id}>{t.label}</div>
+            {keys.filter((k) => k.type === t.id).map((k) => (
+              <div key={k.id} className="key-row">
+                <span className="key-dot" style={{ background: colorForKey(keys, k.name) }} />
+                <span className="key-name">{k.name}</span>
+                <span style={{ flex: 1 }} />
+                <button onClick={() => edit(k)}>편집</button>
+                <button className="danger" onClick={() => del(k)}>×</button>
+              </div>
+            ))}
+            {!keys.some((k) => k.type === t.id) && <div className="key-empty">없음</div>}
+          </div>
+        ))}
+        <div className="key-add">
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {KEY_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            placeholder="KEY 이름" />
+          <button className="primary" onClick={submit} disabled={!name.trim()}>
+            {editId ? '저장' : '추가'}
+          </button>
+          {editId && <button onClick={() => { setEditId(null); setName('') }}>취소</button>}
+        </div>
+        <div className="modal-actions">
+          <button onClick={onClose}>닫기</button>
+        </div>
+      </div>
     </div>
   )
 }

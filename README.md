@@ -17,6 +17,7 @@ backend/
   app.py          # 메인 (FastAPI 라우팅)
   config.py       # .env 로딩 + 프로바이더/모델 경로
   projects.py     # 프로젝트·폴더(그룹) CRUD (projects.json / groups.json)
+  keylist.py      # KEY 리스트 CRUD (keylist.json) — KEY/VALUE 라벨링용
   labels.py       # 라벨 파일 IO
   table_cell_detection/  # 로컬 테이블 셀 검출
   llm/            # LLM 엔진 (Claude/GPT)
@@ -42,6 +43,7 @@ backend/
   "source": "manual",     // 초안 출처: "manual" | "local" | "gpt" | "claude"
   "text_done": false,     // 텍스트박스 검수 완료
   "cell_done": false,     // 테이블셀 검수 완료
+  "item_done": false,     // KEY/VALUE 검수 완료
   "words": [
     {
       "id": "w1",         // 저장 시 배열 순서대로 w1..wN 재번호
@@ -59,9 +61,10 @@ backend/
   ],
   "item": [
     {
-      "id": "i1",         // 저장 시 i1..iN 재번호
-      "key": { "poly": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "text": "성명" },
-      "value": [          // 값 0개 이상 (key만 있을 수도 있음)
+      "id": "i1",              // 저장 시 i1..iN 재번호
+      "type": "deid",          // "deid"(비식별화 대상) | "extract"(VALUE 추출) — 고른 KEY에서 상속
+      "key": { "text": "성명(이름)" },   // KEY 리스트에서 선택 (박스 없음)
+      "value": [               // 값 1개 이상, 각각 박스로 라벨
         { "poly": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]], "text": "홍길동" }
       ]
     }
@@ -69,8 +72,9 @@ backend/
 }
 ```
 - **`poly`**: 4점 폴리곤(좌상단→시계방향), 원본 이미지 픽셀 좌표. 축정렬 사각형은 특수 케이스.
-- **`item`**: 상단 `KEY/VALUE` 탭(텍스트·테이블셀과 별도)에서 라벨링. 하나의 `item`은 **key 1개 + value 배열**로 묶인다. 그리기 상태에서 **첫 박스=key, 두 번째 박스=value**로 짝지어 추가되고, value 없이 끝내려면 key만 그린 뒤 `ESC`(값 없이 저장). value가 둘 이상이면 오른쪽 바의 `＋value 박스 추가`로 박스를 더 그린다. `text`는 박스 안 `words`를 왼→오로 이어붙여 자동 채우며, 오른쪽 패널에서 수정한다. 텍스트 탭에서 word의 text를 고치면 그 word를 포함하는 key/value의 text도 자동 재수집된다.
-- **`text_done` / `cell_done`**: 종류별 검수 완료 플래그. 이미지 리스트 체크박스(텍스트=파랑, 셀=주황)·진행률에 사용. 단축키 `C`는 현재 탭 기준 토글. (구 단일 `done`은 읽을 때 둘 다로 폴백)
+- **`item`**: 상단 `KEY/VALUE` 탭에서 라벨링. **KEY는 그리지 않고 KEY 리스트에서 고른다** — 박스로 그리는 건 **VALUE만**. 흐름: `＋VALUE 그리기`로 값 박스를 그리면 KEY 선택창이 뜨고, KEY를 고르면 그 값 1개를 담은 새 `item`이 생성된다. KEY 하나에 값이 여러 개면 오른쪽 바의 `＋value 박스 추가`로 박스를 더 그린다(같은 KEY에 value 누적). KEY 배지를 누르면 KEY를 다시 고를 수 있다. VALUE `text`는 박스 안 `words`를 왼→오로 이어붙여 자동 채우며, 오른쪽 패널·텍스트 탭 수정 시 자동 재수집된다. `type`은 고른 KEY의 종류가 그대로 저장된다. **캔버스 박스·배지 색은 고른 KEY마다 다르게** 칠해진다(KEY 리스트 순서 기준 팔레트, `frontend/src/keycolors.js`).
+- **KEY 리스트**: 첫 프로젝트 화면의 `🔑 KEY 리스트` 버튼에서 종류별(비식별화 대상 / VALUE 추출)로 추가·수정·삭제. 서버 `keylist.json`에 저장(기본값 없음 = 빈 목록에서 시작, git 제외). API: `GET/POST /api/keylist`, `PUT/DELETE /api/keylist/{id}`.
+- **`text_done` / `cell_done` / `item_done`**: 종류별 검수 완료 플래그. 이미지 리스트 체크박스(텍스트=파랑, 셀=주황, KEY/VALUE=보라)·진행률에 사용. 단축키 `C`는 현재 탭 기준 토글. (구 단일 `done`은 읽을 때 text/cell 둘 다로 폴백)
 - 저장 = 파일 전체 덮어쓰기(부분 patch 없음). IO 어댑터는 `backend/labels.py`.
 
 ## 실행
@@ -121,6 +125,7 @@ cuDNN 9를 번들해 **같은 프로세스에서 동시에 못 올린다**(`WinE
 ```
 python -m backend.labels      # 파일 IO
 python -m backend.projects    # 프로젝트·폴더 CRUD + 드래그 이동
+python -m backend.keylist     # KEY 리스트 시드 + CRUD
 python -m backend.llm         # 파싱/변환
 python -m backend.pipeline <image_path>   # 로컬 파이프라인 (모델·deps 필요)
 ```

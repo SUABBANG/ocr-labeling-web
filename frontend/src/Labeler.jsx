@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from './api.js'
 import Editor from './Editor.jsx'
 import { loadShortcuts, matchAction, ShortcutSettings } from './shortcuts.jsx'
+import { colorForKey, hexA } from './keycolors.js'
 
 export default function Labeler({ project, onExit }) {
   const folder = project.folder
@@ -10,8 +11,11 @@ export default function Labeler({ project, onExit }) {
   const [label, setLabel] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [newMode, setNewMode] = useState(false)
-  // KEY/VALUE 그리기: null=다음 박스는 새 item의 key, <itemId>=다음 박스는 그 item의 value
+  // KEY/VALUE 그리기: pendingValue=<itemId>면 다음 박스는 그 item에 붙일 value(추가 value)
   const [pendingValue, setPendingValue] = useState(null)
+  const [keyList, setKeyList] = useState([])           // KEY 리스트(비식별화/VALUE추출)
+  // KEY 선택 대기: {poly}=그린 value박스에 붙일 새 item의 KEY 고르기 | {itemId}=기존 item의 KEY 변경
+  const [pickKeyFor, setPickKeyFor] = useState(null)
   const [mode, setMode] = useState('text')   // 'text' | 'cell' | 'item' — 라벨링 종류
   const [editShape, setEditShape] = useState('bbox') // 'bbox'(사각형 유지) | 'poly'(꼭짓점)
   const [panMode, setPanMode] = useState(false)
@@ -95,27 +99,26 @@ export default function Labeler({ project, onExit }) {
   // 현재 모드의 박스만 표시/편집 (텍스트=words, 셀=cells, KEY/VALUE=item)
   const visibleWords = useMemo(() => label?.[wkey] || [], [label, wkey])
   const items = useMemo(() => label?.item || [], [label])   // KEY/VALUE 쌍 목록
-  // 캔버스용: item(key+value 중첩)을 개별 박스로 평탄화. 박스 id = <itemId>k | <itemId>v<idx>
+  // 캔버스용: KEY는 리스트에서 고르므로 박스 없음 — value 박스만 평탄화. 색은 고른 KEY별로 배정.
+  // 박스 id = <itemId>v<idx>, color = 그 item KEY의 색
   const editorBoxes = useMemo(() => {
     if (mode !== 'item') return visibleWords
     return items.flatMap((it) => {
-      const boxes = it.key?.poly ? [{ id: it.id + 'k', type: 'key', poly: it.key.poly }] : []
-      ;(it.value || []).forEach((v, i) => boxes.push({ id: it.id + 'v' + i, type: 'value', poly: v.poly }))
-      return boxes
+      const color = colorForKey(keyList, it.key?.text)
+      return (it.value || []).map((v, i) => ({ id: it.id + 'v' + i, type: 'value', color, poly: v.poly }))
     })
-  }, [mode, visibleWords, items])
-  // 평탄화 박스 id 파싱 → { itemId, part:'key'|'value', vi }
+  }, [mode, visibleWords, items, keyList])
+  // 평탄화 박스 id 파싱 → { itemId, part:'value', vi }
   const parseItemBox = (id) => {
     const mv = /^(i\d+)v(\d+)$/.exec(id)
     if (mv) return { itemId: mv[1], part: 'value', vi: +mv[2] }
-    const mk = /^(i\d+)k$/.exec(id)
-    if (mk) return { itemId: mk[1], part: 'key' }
     return null
   }
 
   useEffect(() => {
     api.listImages(folder).then(setImages).catch((e) => alert('폴더 조회 실패: ' + e.message))
   }, [folder])
+  useEffect(() => { api.listKeys().then(setKeyList).catch(() => {}) }, [])
 
   const save = useCallback(async () => {
     const label = labelRef.current   // 최신 label(완료 토글 등)을 stale 클로저 대신 ref로 읽음
@@ -138,7 +141,7 @@ export default function Labeler({ project, onExit }) {
 
   const selectImage = useCallback(async (n) => {
     if (autoSave && dirty) await save()   // 자동저장 ON: 페이지 전환 전 현재 라벨 저장
-    setName(n); setSelectedId(null); setNewMode(false); setPendingValue(null)
+    setName(n); setSelectedId(null); setNewMode(false); setPendingValue(null); setPickKeyFor(null)
     historyRef.current = []; textSession.current = null   // 이미지 넘어가면 히스토리 초기화
     try { setLabel(await api.getLabel(folder, n)); setDirty(false) }
     catch (e) { alert('라벨 로드 실패: ' + e.message) }
@@ -160,10 +163,9 @@ export default function Labeler({ project, onExit }) {
   const changeWord = (id, poly) => {
     // 히스토리는 드래그 시작(onEditStart)에서 1회 저장 — 여기선 저장하지 않음.
     const b = id[0] === 'i' ? parseItemBox(id) : null
-    if (b) {   // KEY/VALUE 박스: item 내부 key/value의 poly 갱신
+    if (b) {   // KEY/VALUE value 박스 poly 갱신 (KEY는 박스 없음)
       setLabel((l) => ({ ...l, item: l.item.map((it) => it.id !== b.itemId ? it
-        : b.part === 'key' ? { ...it, key: { ...it.key, poly } }
-          : { ...it, value: it.value.map((v, i) => i === b.vi ? { ...v, poly } : v) }) }))
+        : { ...it, value: it.value.map((v, i) => i === b.vi ? { ...v, poly } : v) }) }))
       setDirty(true); return
     }
     const k = keyOf(id)
@@ -174,12 +176,11 @@ export default function Labeler({ project, onExit }) {
     if (textSession.current !== id) { pushHistory(); textSession.current = id } // 연속 입력 1스텝
     setLabel((l) => {
       const words = l.words.map((w) => w.id === id ? { ...w, text } : w)
-      // 이 word를 포함하는 key/value 박스의 text 재수집(그 word를 쓰는 KEY/VALUE도 함께 갱신)
+      // 이 word를 포함하는 value 박스의 text 재수집(KEY는 리스트값 고정이라 제외)
       const w = words.find((x) => x.id === id)
       const c = w && boxCenter(w.poly)
       const item = c ? (l.item || []).map((it) => ({
         ...it,
-        key: it.key && contains(it.key.poly, c) ? { ...it.key, text: collectFrom(words, it.key.poly) } : it.key,
         value: (it.value || []).map((v) => contains(v.poly, c) ? { ...v, text: collectFrom(words, v.poly) } : v),
       })) : l.item
       return { ...l, words, item }
@@ -188,7 +189,7 @@ export default function Labeler({ project, onExit }) {
   }
   const deleteWord = (id) => {
     const b = id[0] === 'i' ? parseItemBox(id) : null
-    if (b) { b.part === 'key' ? deleteItem(b.itemId) : deleteValue(b.itemId, b.vi); return }
+    if (b) { deleteValue(b.itemId, b.vi); return }
     pushHistory(); endTextSession()
     const k = keyOf(id)
     setLabel((l) => ({ ...l, [k]: (l[k] || []).filter((w) => w.id !== id) }))
@@ -226,17 +227,28 @@ export default function Labeler({ project, onExit }) {
     .sort((a, b) => a.c[0] - b.c[0])
     .map((w) => w.text).filter(Boolean).join(' ')
   const collectText = (poly) => collectFrom(labelRef.current?.words || [], poly)
-  // KEY/VALUE 그리기 흐름: pendingValue 없으면 새 item의 key 생성(→다음 박스는 value 대기),
-  // 있으면 그 item에 value 추가.
+  // KEY/VALUE 그리기 흐름: pendingValue면 그 item에 value 추가, 아니면 그린 value 박스에
+  // 붙일 KEY를 리스트에서 고르도록 picker 열기(고르면 새 item 생성).
   const onDrawItem = (poly) => {
-    if (pendingValue) { appendValue(pendingValue, poly); setPendingValue(null) }
-    else {
+    if (pendingValue) { appendValue(pendingValue, poly); setPendingValue(null); return }
+    setPickKeyFor({ poly })
+  }
+  // KEY 선택 확정: 새 item(value 1개 포함) 생성 또는 기존 item의 KEY 변경. key = {id,name,type}
+  const chooseKey = (key) => {
+    if (!pickKeyFor) return
+    pushHistory(); endTextSession()
+    if (pickKeyFor.itemId) {
+      const iid = pickKeyFor.itemId
+      setLabel((l) => ({ ...l, item: l.item.map((it) => it.id === iid
+        ? { ...it, type: key.type, key: { text: key.name } } : it) }))
+    } else {
       const id = 'i' + Date.now()
-      pushHistory(); endTextSession()
-      setLabel((l) => ({ ...l, item: [...(l.item || []), { id, key: { poly, text: collectText(poly) }, value: [] }] }))
-      setSelectedId(id + 'k'); setDirty(true)
-      setPendingValue(id)   // 다음 박스는 이 item의 value(필수 2번째)
+      const poly = pickKeyFor.poly
+      setLabel((l) => ({ ...l, item: [...(l.item || []),
+        { id, type: key.type, key: { text: key.name }, value: [{ poly, text: collectText(poly) }] }] }))
+      setSelectedId(id + 'v0')
     }
+    setDirty(true); setPickKeyFor(null)
   }
   const appendValue = (itemId, poly) => {
     pushHistory(); endTextSession()
@@ -246,12 +258,7 @@ export default function Labeler({ project, onExit }) {
     setDirty(true)
   }
   // 오른쪽 바 '＋value 박스 추가' → 다음 박스를 이 item의 value로
-  const startAddValue = (itemId) => { setPendingValue(itemId); setNewMode(true); setSelectedId(itemId + 'k') }
-  const setKeyText = (itemId, text) => {
-    if (textSession.current !== itemId + 'k') { pushHistory(); textSession.current = itemId + 'k' }
-    setLabel((l) => ({ ...l, item: l.item.map((it) => it.id === itemId ? { ...it, key: { ...it.key, text } } : it) }))
-    setDirty(true)
-  }
+  const startAddValue = (itemId) => { setPendingValue(itemId); setNewMode(true); setSelectedId(itemId + 'v0') }
   const setValueText = (itemId, vi, text) => {
     const sess = itemId + 'v' + vi
     if (textSession.current !== sess) { pushHistory(); textSession.current = sess }
@@ -279,7 +286,7 @@ export default function Labeler({ project, onExit }) {
     setLabel((l) => ({ ...l, [wkey]: [] }))
     setSelectedId(null); setDirty(true)
   }
-  const switchMode = (m) => { setMode(m); setSelectedId(null); setNewMode(false); setPendingValue(null); endTextSession() }
+  const switchMode = (m) => { setMode(m); setSelectedId(null); setNewMode(false); setPendingValue(null); setPickKeyFor(null); endTextSession() }
 
   const deleteImg = async (e, n) => {
     e.stopPropagation()
@@ -316,6 +323,8 @@ export default function Labeler({ project, onExit }) {
       // Ctrl/Cmd+S: 물리 키(KeyS)로 잡아 IME(한글)·포커스와 무관하게 저장.
       // (e.key는 한글 IME/레이아웃에서 's'가 아니어서 matchAction이 놓쳐 브라우저 '다른 이름으로 저장'이 떴음)
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); save(); return }
+      // KEY 선택 대기 중엔 ESC로 취소만 허용(다른 단축키 차단)
+      if (pickKeyFor) { if (e.key === 'Escape') { e.preventDefault(); setPickKeyFor(null) } return }
       if (e.code === 'Space' && !editing()) { e.preventDefault(); setPanMode(true); return }
       const action = matchAction(keys, e)
       if (editing()) {
@@ -349,7 +358,7 @@ export default function Labeler({ project, onExit }) {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [keys, selectedId, newMode, mode, pendingValue, moveImage, save, runModel, toggleDone, undo])
+  }, [keys, selectedId, newMode, mode, pendingValue, pickKeyFor, moveImage, save, runModel, toggleDone, undo])
 
   return (
     <div className="labeler">
@@ -377,9 +386,9 @@ export default function Labeler({ project, onExit }) {
               onChange={(e) => { setAutoSave(e.target.checked); localStorage.setItem('autoSave', e.target.checked ? '1' : '0') }} />
             자동저장
           </label>
-          <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : mode === 'item' ? 'toggle-kv ' + (pendingValue ? 'value' : 'key') : 'toggle-on') : ''}
+          <button className={newMode ? (mode === 'cell' ? 'toggle-cell' : mode === 'item' ? 'toggle-kv value' : 'toggle-on') : ''}
             title={`박스 그리기/선택 전환 (단축키 ${keys.newBox})`}
-            onClick={() => setNewMode((v) => !v)}>＋{mode === 'item' ? (pendingValue ? 'VALUE' : 'KEY') : mode === 'cell' ? '셀' : '텍스트'} 그리기</button>
+            onClick={() => setNewMode((v) => !v)}>＋{mode === 'item' ? 'VALUE' : mode === 'cell' ? '셀' : '텍스트'} 그리기</button>
           <button className="edit-shape" title="편집 모드 전환 (단축키 B)"
             onClick={() => setEditShape((s) => (s === 'bbox' ? 'poly' : 'bbox'))}>
             편집: {editShape === 'bbox' ? '□ bbox' : '◇ poly'}
@@ -429,7 +438,9 @@ export default function Labeler({ project, onExit }) {
           )}
           {busy && <div className="badge">{busy}</div>}
           {mode === 'item' && pendingValue && !busy &&
-            <div className="badge">VALUE 박스를 그리세요 · ESC = 값 없이 저장</div>}
+            <div className="badge">VALUE 박스를 추가로 그리세요 · ESC = 취소</div>}
+          {mode === 'item' && newMode && !pendingValue && !pickKeyFor && !busy &&
+            <div className="badge">VALUE 박스를 그리면 KEY를 고릅니다</div>}
         </div>
 
         <div className="resizer" onMouseDown={startResize('right')} />
@@ -442,18 +453,21 @@ export default function Labeler({ project, onExit }) {
           </div>
           <div style={{ padding: 6 }}>
             {mode === 'item' ? (
-              items.map((it) => (
-                <div key={it.id} className={'item-card' + (parseItemBox(selectedId || '')?.itemId === it.id ? ' active' : '')}>
-                  <div className="word-row" onClick={() => setSelectedId(it.id + 'k')}>
-                    <button className="kv-btn key" title="KEY">KEY</button>
-                    <input ref={(el) => { wordInputs.current[it.id + 'k'] = el }} className="kv-key" value={it.key?.text || ''}
-                      onChange={(e) => setKeyText(it.id, e.target.value)}
-                      onFocus={() => setSelectedId(it.id + 'k')} />
+              items.map((it) => {
+                const c = colorForKey(keyList, it.key?.text)
+                return (
+                <div key={it.id} style={{ borderLeftColor: c }}
+                  className={'item-card' + (parseItemBox(selectedId || '')?.itemId === it.id ? ' active' : '')}>
+                  <div className="word-row">
+                    <button className="kv-btn" style={{ background: hexA(c, 0.15), color: c }}
+                      title="KEY 변경" onClick={() => setPickKeyFor({ itemId: it.id })}>KEY</button>
+                    <span className="kv-keyname" title="클릭해 KEY 변경"
+                      onClick={() => setPickKeyFor({ itemId: it.id })}>{it.key?.text || '(KEY 선택)'}</span>
                     <button className="danger" title="쌍 삭제" onClick={() => deleteItem(it.id)}>×</button>
                   </div>
                   {(it.value || []).map((v, vi) => (
                     <div className="word-row val" key={vi} onClick={() => setSelectedId(it.id + 'v' + vi)}>
-                      <button className="kv-btn value" title="VALUE">VAL</button>
+                      <button className="kv-btn" style={{ background: hexA(c, 0.15), color: c }} title="VALUE">VAL</button>
                       <input ref={(el) => { wordInputs.current[it.id + 'v' + vi] = el }} className="kv-value" value={v.text}
                         onChange={(e) => setValueText(it.id, vi, e.target.value)}
                         onFocus={() => setSelectedId(it.id + 'v' + vi)} />
@@ -462,7 +476,8 @@ export default function Labeler({ project, onExit }) {
                   ))}
                   <button className="add-value" onClick={() => startAddValue(it.id)}>＋ value 박스 추가</button>
                 </div>
-              ))
+                )
+              })
             ) : (
               visibleWords.map((w) => (
                 <div key={w.id} ref={(el) => { rowRefs.current[w.id] = el }}
@@ -496,6 +511,31 @@ export default function Labeler({ project, onExit }) {
 
       {showSettings && (
         <ShortcutSettings map={keys} onChange={setKeys} onClose={() => setShowSettings(false)} />
+      )}
+
+      {pickKeyFor && (
+        <div className="modal-back" onClick={() => setPickKeyFor(null)}>
+          <div className="modal keypick" onClick={(e) => e.stopPropagation()}>
+            <h3>KEY 선택</h3>
+            {[['deid', '비식별화 대상'], ['extract', 'VALUE 추출']].map(([t, label]) => (
+              <div key={t} className="key-group">
+                <div className={'key-type-head ' + t}>{label}</div>
+                <div className="key-pick-grid">
+                  {keyList.filter((k) => k.type === t).map((k) => {
+                    const kc = colorForKey(keyList, k.name)
+                    return (
+                      <button key={k.id} className="key-pick"
+                        style={{ background: hexA(kc, 0.15), color: kc, borderColor: hexA(kc, 0.5) }}
+                        onClick={() => chooseKey(k)}>{k.name}</button>
+                    )
+                  })}
+                  {!keyList.some((k) => k.type === t) && <span className="key-empty">없음</span>}
+                </div>
+              </div>
+            ))}
+            <div className="modal-actions"><button onClick={() => setPickKeyFor(null)}>취소 (ESC)</button></div>
+          </div>
+        </div>
       )}
     </div>
   )

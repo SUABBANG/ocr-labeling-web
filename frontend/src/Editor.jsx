@@ -3,6 +3,7 @@ import React, {
   forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState,
 } from 'react'
 import { Stage, Layer, Image as KImage, Line, Circle, Rect } from 'react-konva'
+import { hexA } from './keycolors.js'
 
 const MIN_SCALE = 0.1
 const MAX_SCALE = 10
@@ -164,11 +165,10 @@ function rectFrom(p, q) {
 
 function WordShape({ word, selected, strokeWidth, editable, editShape, onSelect, onEditStart, onChange }) {
   const flat = word.poly.flat()
-  // 셀=주황, key=초록, value=보라, 텍스트=파랑
-  const base = word.kind === 'cell' ? '#ffa000'
-    : word.type === 'key' ? '#1b9e4b' : word.type === 'value' ? '#9333ea' : '#00b0ff'
+  // 셀=주황, 텍스트=파랑. KEY/VALUE의 value 박스는 word.color(고른 KEY별 색)로 칠한다.
+  const base = word.kind === 'cell' ? '#ffa000' : (word.color || '#00b0ff')
   const fill = word.kind === 'cell' ? 'rgba(255,160,0,0.06)'
-    : word.type === 'key' ? 'rgba(27,158,75,0.08)' : word.type === 'value' ? 'rgba(147,51,234,0.08)' : 'rgba(0,176,255,0.05)'
+    : word.color ? hexA(word.color, 0.10) : 'rgba(0,176,255,0.05)'
   return (
     <>
       <Line

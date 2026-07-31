@@ -43,6 +43,12 @@ export const updateProject = (id, data) => jbody(`/api/projects/${id}`, 'PUT', d
 export const deleteProject = (id) => j(`/api/projects/${id}`, { method: 'DELETE' })
 export const moveProject = (id, group) => jbody(`/api/projects/${id}/group`, 'PUT', { group })
 
+// --- KEY 리스트 (KEY/VALUE 라벨링용) ---
+export const listKeys = () => j('/api/keylist')
+export const createKey = (data) => jbody('/api/keylist', 'POST', data)
+export const updateKey = (id, data) => jbody(`/api/keylist/${id}`, 'PUT', data)
+export const deleteKey = (id) => j(`/api/keylist/${id}`, { method: 'DELETE' })
+
 // --- 프로젝트 폴더(그룹) ---
 export const listGroups = () => j('/api/groups')
 export const createGroup = (data) => jbody('/api/groups', 'POST', data)

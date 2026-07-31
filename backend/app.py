@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, labels, projects  # config: .env 로딩 (import 시점)
+from . import config, keylist, labels, projects  # config: .env 로딩 (import 시점)
 
 app = FastAPI(title="OCR Labeling")
 
@@ -75,6 +75,28 @@ def edit_group(gid: str, data: dict = Body(...)):
 @app.delete("/api/groups/{gid}")
 def remove_group(gid: str):
     projects.delete_group(gid)
+    return {"ok": True}
+
+
+# --- KEY 리스트 (KEY/VALUE 라벨링용) ---
+@app.get("/api/keylist")
+def get_keylist():
+    return keylist.list_keys()
+
+
+@app.post("/api/keylist")
+def create_key(data: dict = Body(...)):
+    return _guard(keylist.add_key, data.get("name", ""), data.get("type", ""))
+
+
+@app.put("/api/keylist/{kid}")
+def edit_key(kid: str, data: dict = Body(...)):
+    return _guard(keylist.update_key, kid, data.get("name", ""), data.get("type", ""))
+
+
+@app.delete("/api/keylist/{kid}")
+def remove_key(kid: str):
+    keylist.delete_key(kid)
     return {"ok": True}
 
 
