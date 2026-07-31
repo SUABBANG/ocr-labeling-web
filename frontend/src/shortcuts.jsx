@@ -50,8 +50,13 @@ export function saveShortcuts(map) {
 }
 
 // KeyboardEvent → 정규화 키 문자열. 단일 문자는 소문자.
+// 글자/숫자는 물리 키(e.code)로 뽑아 한글 IME·레이아웃에서도 매칭되게 함
+// (IME 상태에선 e.key가 한글이 되어 'z','r' 등 단축키가 놓쳐졌음)
 export function eventToKey(e) {
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+  let k
+  if (/^Key[A-Z]$/.test(e.code)) k = e.code.slice(3).toLowerCase()
+  else if (/^Digit[0-9]$/.test(e.code)) k = e.code.slice(5)
+  else k = e.key.length === 1 ? e.key.toLowerCase() : e.key
   return (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + k
 }
 
