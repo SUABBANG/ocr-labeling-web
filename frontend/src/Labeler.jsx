@@ -340,6 +340,12 @@ export default function Labeler({ project, onExit }) {
         cancel: () => { if (pendingValue) { setPendingValue(null); return } setSelectedId(null); setNewMode(false) },
         deleteBox: () => selectedId && deleteWord(selectedId),
         newBox: () => setNewMode((v) => !v),
+        // VALUE 추가: 직전 라벨링한 KEY(선택된 item 우선, 없으면 마지막 item)에 value 박스 하나 더
+        addValue: () => {
+          if (mode !== 'item') return
+          const iid = parseItemBox(selectedId || '')?.itemId || items[items.length - 1]?.id
+          if (iid) startAddValue(iid)
+        },
         save,
         runModel,
         fit: () => editorRef.current?.fit(),
@@ -358,7 +364,7 @@ export default function Labeler({ project, onExit }) {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [keys, selectedId, newMode, mode, pendingValue, pickKeyFor, moveImage, save, runModel, toggleDone, undo])
+  }, [keys, selectedId, newMode, mode, pendingValue, pickKeyFor, items, moveImage, save, runModel, toggleDone, undo])
 
   return (
     <div className="labeler">
